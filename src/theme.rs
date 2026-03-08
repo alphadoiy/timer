@@ -21,20 +21,20 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            outline: Color::Rgb(0, 0, 0),
-            accent: Color::Rgb(12, 18, 28),
-            accent_soft: Color::Rgb(56, 71, 96),
-            highlight: Color::Rgb(18, 30, 48),
-            figlet_fg: Color::Rgb(255, 255, 255),
+            outline: Color::Rgb(46, 66, 92),
+            accent: Color::Rgb(94, 211, 255),
+            accent_soft: Color::Rgb(140, 179, 224),
+            highlight: Color::Rgb(255, 196, 92),
+            figlet_fg: Color::Rgb(244, 250, 255),
             figlet_bg: Color::Rgb(24, 36, 56),
-            text: Color::Rgb(20, 27, 38),
-            subtext: Color::Rgb(92, 102, 118),
-            shadow: Color::Rgb(34, 45, 63),
-            danger: Color::Rgb(220, 86, 48),
-            success: Color::Rgb(52, 153, 104),
-            hour_hand: Color::Rgb(24, 34, 50),
-            minute_hand: Color::Rgb(12, 22, 36),
-            second_hand: Color::Rgb(255, 85, 85),
+            text: Color::Rgb(224, 236, 248),
+            subtext: Color::Rgb(154, 173, 196),
+            shadow: Color::Rgb(19, 30, 44),
+            danger: Color::Rgb(255, 107, 107),
+            success: Color::Rgb(92, 214, 156),
+            hour_hand: Color::Rgb(166, 214, 255),
+            minute_hand: Color::Rgb(126, 194, 255),
+            second_hand: Color::Rgb(255, 122, 122),
         }
     }
 }

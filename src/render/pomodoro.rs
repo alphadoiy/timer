@@ -66,7 +66,7 @@ pub(super) fn render_pomodoro_road_panel(
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(32), Constraint::Percentage(68)])
         .split(area);
-    render_pomodoro_countdown(rows[0], buf, &countdown, jx, jy);
+    render_pomodoro_countdown(rows[0], buf, &countdown, jx, jy, theme);
 
     let road_area = rows[1];
     let road_block = Block::default()
@@ -108,7 +108,7 @@ pub(super) fn render_pomodoro_road_panel(
         top.x as i16,
         top.y as i16,
         "25:00",
-        ratatui::style::Color::Black,
+        theme.text,
     );
     let right_x = top.right() as i16 - UnicodeWidthStr::width("00:00") as i16;
     super::put_text(
@@ -116,14 +116,14 @@ pub(super) fn render_pomodoro_road_panel(
         right_x,
         top.y as i16,
         "00:00",
-        ratatui::style::Color::Black,
+        theme.text,
     );
     super::put_text(
         buf,
         (right_x - 6).max(top.x as i16),
         top.y as i16,
         "FIN",
-        ratatui::style::Color::Rgb(210, 150, 0),
+        theme.highlight,
     );
 
     render_weathr_animation(world, buf, finish_sprint);
@@ -514,7 +514,14 @@ fn phase_seconds() -> f32 {
         .as_secs_f32()
 }
 
-fn render_pomodoro_countdown(area: Rect, buf: &mut Buffer, text: &str, shift_x: i16, shift_y: i16) {
+fn render_pomodoro_countdown(
+    area: Rect,
+    buf: &mut Buffer,
+    text: &str,
+    shift_x: i16,
+    shift_y: i16,
+    theme: Theme,
+) {
     let mut lines = super::figlet_lines(text, area.width as usize);
     if lines.is_empty() {
         lines.push(text.to_string());
@@ -532,12 +539,15 @@ fn render_pomodoro_countdown(area: Rect, buf: &mut Buffer, text: &str, shift_x: 
         if y < area.y as i16 || y >= area.bottom() as i16 {
             break;
         }
-        super::put_centered(
+        let solid_line = super::solidify_figlet_line(line);
+        super::put_centered_gradient(
             buf,
             shifted,
             y,
-            line,
-            ratatui::style::Color::Rgb(208, 42, 42),
+            &solid_line,
+            theme.highlight,
+            theme.accent,
+            theme.danger,
         );
     }
 }

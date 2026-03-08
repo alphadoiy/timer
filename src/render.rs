@@ -286,6 +286,7 @@ impl DashboardView<'_> {
             line,
             Style::default()
                 .fg(self.theme.text)
+                .bg(self.theme.shadow)
                 .add_modifier(Modifier::BOLD),
         )))
         .alignment(Alignment::Center)
@@ -327,7 +328,16 @@ fn render_figlet_time_shifted(
         if y < area.y as i16 || y >= area.bottom() as i16 {
             break;
         }
-        put_centered(buf, shifted, y, line, theme.figlet_fg);
+        let solid_line = solidify_figlet_line(line);
+        put_centered_gradient(
+            buf,
+            shifted,
+            y,
+            &solid_line,
+            theme.accent,
+            theme.highlight,
+            theme.danger,
+        );
     }
 }
 
@@ -396,15 +406,96 @@ fn put_centered(buf: &mut Buffer, area: Rect, y: i16, text: &str, color: ratatui
     put_text(buf, x, y, text, color);
 }
 
+fn put_centered_gradient(
+    buf: &mut Buffer,
+    area: Rect,
+    y: i16,
+    text: &str,
+    from: ratatui::style::Color,
+    mid: ratatui::style::Color,
+    to: ratatui::style::Color,
+) {
+    let width = UnicodeWidthStr::width(text) as i16;
+    let x = area.x as i16 + area.width as i16 / 2 - width / 2;
+    put_text_gradient(buf, x, y, text, from, mid, to);
+}
+
 fn put_text(buf: &mut Buffer, x: i16, y: i16, text: &str, color: ratatui::style::Color) {
     for (offset, ch) in text.chars().enumerate() {
         put(buf, x + offset as i16, y, &ch.to_string(), color);
     }
 }
 
+fn put_text_gradient(
+    buf: &mut Buffer,
+    x: i16,
+    y: i16,
+    text: &str,
+    from: ratatui::style::Color,
+    mid: ratatui::style::Color,
+    to: ratatui::style::Color,
+) {
+    let chars: Vec<char> = text.chars().collect();
+    let last = chars.len().saturating_sub(1).max(1) as f32;
+    for (idx, ch) in chars.into_iter().enumerate() {
+        if ch == ' ' {
+            continue;
+        }
+        let t = idx as f32 / last;
+        let color = gradient3(from, mid, to, t);
+        put(buf, x + idx as i16, y, &ch.to_string(), color);
+    }
+}
+
+fn solidify_figlet_line(line: &str) -> String {
+    line.to_string()
+}
+
+fn gradient3(
+    from: ratatui::style::Color,
+    mid: ratatui::style::Color,
+    to: ratatui::style::Color,
+    t: f32,
+) -> ratatui::style::Color {
+    let t = t.clamp(0.0, 1.0);
+    if t <= 0.5 {
+        lerp_color(from, mid, t * 2.0)
+    } else {
+        lerp_color(mid, to, (t - 0.5) * 2.0)
+    }
+}
+
+fn lerp_color(
+    from: ratatui::style::Color,
+    to: ratatui::style::Color,
+    t: f32,
+) -> ratatui::style::Color {
+    match (from, to) {
+        (ratatui::style::Color::Rgb(fr, fg, fb), ratatui::style::Color::Rgb(tr, tg, tb)) => {
+            let t = t.clamp(0.0, 1.0);
+            ratatui::style::Color::Rgb(
+                (fr as f32 + (tr as f32 - fr as f32) * t).round() as u8,
+                (fg as f32 + (tg as f32 - fg as f32) * t).round() as u8,
+                (fb as f32 + (tb as f32 - fb as f32) * t).round() as u8,
+            )
+        }
+        _ => {
+            if t < 0.5 {
+                from
+            } else {
+                to
+            }
+        }
+    }
+}
+
 fn figlet_lines(text: &str, max_width: usize) -> Vec<String> {
     static FONT: OnceLock<Option<FIGfont>> = OnceLock::new();
-    let font = FONT.get_or_init(|| FIGfont::standard().ok());
+    let font = FONT.get_or_init(|| {
+        FIGfont::from_content(include_str!("../assets/fonts/slant.flf"))
+            .ok()
+            .or_else(|| FIGfont::standard().ok())
+    });
     let Some(font) = font else {
         return vec![text.to_string()];
     };
