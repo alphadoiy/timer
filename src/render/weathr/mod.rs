@@ -27,6 +27,30 @@ pub struct TerminalRenderer {
     buffer: Vec<Cell>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ViewportTransform {
+    pub scale: f32,
+    pub offset_x: i16,
+    pub offset_y: i16,
+}
+
+impl ViewportTransform {
+    pub fn cover(logical_width: u16, logical_height: u16, area: Rect) -> Self {
+        let x_scale = area.width as f32 / logical_width.max(1) as f32;
+        let y_scale = area.height as f32 / logical_height.max(1) as f32;
+        let scale = x_scale.max(y_scale).max(0.01);
+        let scaled_w = (logical_width as f32 * scale).round() as i16;
+        let scaled_h = (logical_height as f32 * scale).round() as i16;
+        let offset_x = (area.width as i16 - scaled_w) / 2;
+        let offset_y = (area.height as i16 - scaled_h) / 2;
+        Self {
+            scale,
+            offset_x,
+            offset_y,
+        }
+    }
+}
+
 impl TerminalRenderer {
     pub fn new(width: u16, height: u16) -> Self {
         let size = (width as usize).saturating_mul(height as usize);
@@ -35,17 +59,6 @@ impl TerminalRenderer {
             height,
             buffer: vec![Cell::default(); size],
         }
-    }
-
-    pub fn resize(&mut self, width: u16, height: u16) {
-        if self.width == width && self.height == height {
-            self.clear();
-            return;
-        }
-        self.width = width;
-        self.height = height;
-        let size = (width as usize).saturating_mul(height as usize);
-        self.buffer = vec![Cell::default(); size];
     }
 
     pub fn clear(&mut self) {
@@ -74,7 +87,10 @@ impl TerminalRenderer {
                     if col < self.width {
                         let i = (row as usize) * (self.width as usize) + (col as usize);
                         if i < self.buffer.len() {
-                            self.buffer[i] = Cell { character: ch, color };
+                            self.buffer[i] = Cell {
+                                character: ch,
+                                color,
+                            };
                         }
                     }
                 }
@@ -98,7 +114,10 @@ impl TerminalRenderer {
             if col < self.width {
                 let i = (y as usize) * (self.width as usize) + (col as usize);
                 if i < self.buffer.len() {
-                    self.buffer[i] = Cell { character: ch, color };
+                    self.buffer[i] = Cell {
+                        character: ch,
+                        color,
+                    };
                 }
             }
         }
@@ -109,16 +128,30 @@ impl TerminalRenderer {
         if x < self.width && y < self.height {
             let i = (y as usize) * (self.width as usize) + (x as usize);
             if i < self.buffer.len() {
-                self.buffer[i] = Cell { character: ch, color };
+                self.buffer[i] = Cell {
+                    character: ch,
+                    color,
+                };
             }
         }
         Ok(())
     }
 
-    pub fn flush_to(&self, area: Rect, buf: &mut Buffer) {
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let i = (y as usize) * (self.width as usize) + (x as usize);
+    pub fn flush_cover_to(&self, area: Rect, buf: &mut Buffer, viewport: ViewportTransform) {
+        for dy in 0..area.height {
+            for dx in 0..area.width {
+                let sx_f = (dx as i16 - viewport.offset_x) as f32 / viewport.scale;
+                let sy_f = (dy as i16 - viewport.offset_y) as f32 / viewport.scale;
+                if sx_f < 0.0 || sy_f < 0.0 {
+                    continue;
+                }
+                let sx = sx_f.floor() as u16;
+                let sy = sy_f.floor() as u16;
+                if sx >= self.width || sy >= self.height {
+                    continue;
+                }
+
+                let i = (sy as usize) * (self.width as usize) + (sx as usize);
                 if i >= self.buffer.len() {
                     continue;
                 }
@@ -128,8 +161,8 @@ impl TerminalRenderer {
                 }
                 super::put(
                     buf,
-                    area.x as i16 + x as i16,
-                    area.y as i16 + y as i16,
+                    area.x as i16 + dx as i16,
+                    area.y as i16 + dy as i16,
                     &cell.character.to_string(),
                     map_color(cell.color),
                 );
@@ -157,5 +190,20 @@ fn map_color(color: Color) -> ratatui::style::Color {
         Color::Magenta | Color::DarkMagenta => ratatui::style::Color::Magenta,
         Color::Rgb { r, g, b } => ratatui::style::Color::Rgb(r, g, b),
         Color::AnsiValue(v) => ratatui::style::Color::Indexed(v),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ViewportTransform;
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn viewport_cover_fills_area() {
+        let area = Rect::new(0, 0, 80, 20);
+        let viewport = ViewportTransform::cover(120, 34, area);
+        let scaled_w = (120.0 * viewport.scale).round() as i16;
+        let scaled_h = (34.0 * viewport.scale).round() as i16;
+        assert!(scaled_w >= area.width as i16 || scaled_h >= area.height as i16);
     }
 }

@@ -20,9 +20,20 @@ pub struct CloudSystem {
     terminal_width: u16,
     terminal_height: u16,
     base_wind_x: f32,
+    safe_left: f32,
+    safe_right: f32,
+    safe_top: f32,
+    safe_bottom: f32,
 }
 
 impl CloudSystem {
+    pub fn set_safe_area(&mut self, left: f32, right: f32, top: f32, bottom: f32) {
+        self.safe_left = left.max(0.0);
+        self.safe_right = right.min(self.terminal_width as f32).max(self.safe_left);
+        self.safe_top = top.max(0.0);
+        self.safe_bottom = bottom.min(self.terminal_height as f32).max(self.safe_top);
+    }
+
     pub fn set_cloud_color(&mut self, is_clear: bool) {
         let color = if is_clear {
             Color::White
@@ -74,6 +85,10 @@ impl CloudSystem {
             terminal_width,
             terminal_height,
             base_wind_x,
+            safe_left: 0.0,
+            safe_right: terminal_width as f32,
+            safe_top: 0.0,
+            safe_bottom: terminal_height as f32,
         }
     }
 
@@ -146,9 +161,11 @@ impl CloudSystem {
 
         for cloud in &mut self.clouds {
             cloud.x += cloud.speed + cloud.wind_x;
+            let max_x = (self.safe_right - cloud_width(cloud)).max(self.safe_left);
+            cloud.x = cloud.x.clamp(self.safe_left, max_x);
+            let max_y = (self.safe_bottom - cloud_height(cloud)).max(self.safe_top);
+            cloud.y = cloud.y.clamp(self.safe_top, max_y);
         }
-
-        self.clouds.retain(|c| c.x < terminal_width as f32);
 
         let max_clouds = if is_clear {
             (terminal_width / 30) as usize
@@ -159,16 +176,19 @@ impl CloudSystem {
         let spawn_chance = if is_clear { 0.002 } else { 0.005 };
 
         let min_gap = (terminal_width as f32 / 8.0).max(15.0);
-        let too_close = self.clouds.iter().any(|c| c.x < min_gap);
+        let too_close = self.clouds.iter().any(|c| c.x < self.safe_left + min_gap);
 
         if self.clouds.len() < max_clouds && !too_close && rng.random::<f32>() < spawn_chance {
-            self.clouds.push(Self::create_random_cloud(
-                0.0,
+            let mut cloud = Self::create_random_cloud(
+                self.safe_left,
                 terminal_height,
                 cloud_color,
                 self.base_wind_x,
                 rng,
-            ));
+            );
+            let max_y = (self.safe_bottom - cloud_height(&cloud)).max(self.safe_top);
+            cloud.y = cloud.y.clamp(self.safe_top, max_y);
+            self.clouds.push(cloud);
         }
     }
 
@@ -197,4 +217,12 @@ impl CloudSystem {
         }
         Ok(())
     }
+}
+
+fn cloud_width(cloud: &Cloud) -> f32 {
+    cloud.shape.iter().map(|l| l.len()).max().unwrap_or(0) as f32
+}
+
+fn cloud_height(cloud: &Cloud) -> f32 {
+    cloud.shape.len() as f32
 }

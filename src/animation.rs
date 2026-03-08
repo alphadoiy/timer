@@ -176,7 +176,12 @@ impl Animator {
         }
     }
 
-    fn apply_transition(&self, mut pose: SpritePose, _transition: Transition, t: f32) -> SpritePose {
+    fn apply_transition(
+        &self,
+        mut pose: SpritePose,
+        _transition: Transition,
+        t: f32,
+    ) -> SpritePose {
         pose.radius_scale *= 0.94 + ease_out_back(t) * 0.06;
         pose.tilt += wave(t * std::f32::consts::TAU * 1.5) * 0.12;
         pose.pulse += 0.15 * (1.0 - (t - 0.5).abs() * 2.0).max(0.0);

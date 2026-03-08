@@ -217,7 +217,7 @@ impl DashboardView<'_> {
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "Scene preset",
+                "Live local weather",
                 Style::default().fg(self.theme.subtext),
             )),
         ])
@@ -229,7 +229,9 @@ impl DashboardView<'_> {
             Line::from(Span::styled(
                 format!(
                     "{:>5.1}% CPU   {:>4}/{:>4} MiB",
-                    self.system.cpu_usage, self.system.memory_used_mib, self.system.memory_total_mib
+                    self.system.cpu_usage,
+                    self.system.memory_used_mib,
+                    self.system.memory_total_mib
                 ),
                 Style::default().fg(self.theme.highlight),
             )),
@@ -290,20 +292,8 @@ impl DashboardView<'_> {
         .render(area, buf);
     }
 
-    fn weather_label(&self) -> &'static str {
-        if self.pomodoro.running && self.pomodoro.remaining.as_secs() <= 10 && !self.pomodoro.completed
-        {
-            return "Stormy";
-        }
-        if !self.pomodoro.running {
-            return "Foggy";
-        }
-        match self.pomodoro.cycle % 4 {
-            1 => "Sunny",
-            2 => "Rainy",
-            3 => "Snowy",
-            _ => "Sunny",
-        }
+    fn weather_label(&self) -> String {
+        pomodoro::current_weather_summary()
     }
 }
 

@@ -5,101 +5,41 @@ use std::{
 
 use crossterm::style::Color as CtColor;
 
-use crate::render::weathr::{
-    TerminalRenderer,
-    animation::{
-        airplanes::AirplaneSystem, birds::BirdSystem, chimney::ChimneySmoke, clouds::CloudSystem,
-        fireflies::FireflySystem, fog::FogSystem, leaves::FallingLeaves, moon::MoonSystem,
-        raindrops::RaindropSystem, snow::SnowSystem, stars::StarSystem,
-        thunderstorm::ThunderstormSystem,
+use crate::{
+    render::weathr::{
+        TerminalRenderer, ViewportTransform,
+        animation::{
+            AnimationController, airplanes::AirplaneSystem, birds::BirdSystem,
+            chimney::ChimneySmoke, clouds::CloudSystem, fireflies::FireflySystem, fog::FogSystem,
+            leaves::FallingLeaves, moon::MoonSystem, raindrops::RaindropSystem, snow::SnowSystem,
+            stars::StarSystem, sunny::SunnyAnimation, thunderstorm::ThunderstormSystem,
+        },
+        scene::{WorldScene, house::House},
+        types::{FogIntensity, RainIntensity, SnowIntensity},
     },
-    scene::house::House,
-    types::{FogIntensity, RainIntensity, SnowIntensity},
+    weather_live::{LiveWeather, WeatherCondition, configured_coords, spawn_weather_worker},
 };
 
 use super::*;
 
 const SIM_STEP: Duration = Duration::from_millis(33);
 const MAX_SIM_STEPS_PER_FRAME: u8 = 8;
+const LOGICAL_WIDTH: u16 = 120;
+const LOGICAL_HEIGHT: u16 = 34;
+const SUNNY_FRAME_DELAY: Duration = Duration::from_millis(500);
 
-type RenderPass = fn(&mut WeatherScene, RenderQuality, bool);
-
-const RENDER_PIPELINE: [RenderPass; 4] = [
-    WeatherScene::render_sky_layer,
-    WeatherScene::render_mid_layer,
-    WeatherScene::render_ground_layer,
-    WeatherScene::render_fx_layer,
-];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WeatherPreset {
-    Sunny,
-    Rainy,
-    Snowy,
-    Foggy,
-    Stormy,
-}
-
-impl WeatherPreset {
-    fn from_state(running: bool, finish_sprint: bool, cycle: u32) -> Self {
-        if finish_sprint {
-            return Self::Stormy;
-        }
-        if !running {
-            return Self::Foggy;
-        }
-        match cycle % 4 {
-            1 => Self::Sunny,
-            2 => Self::Rainy,
-            3 => Self::Snowy,
-            _ => Self::Sunny,
-        }
-    }
-
-    fn is_rainy(self) -> bool {
-        matches!(self, Self::Rainy | Self::Stormy)
-    }
-
-    fn is_snowy(self) -> bool {
-        matches!(self, Self::Snowy)
-    }
-
-    fn is_foggy(self) -> bool {
-        matches!(self, Self::Foggy | Self::Stormy)
-    }
-
-    fn has_thunder(self) -> bool {
-        matches!(self, Self::Stormy)
-    }
-}
-
-#[derive(Clone, Copy)]
-struct RenderQuality {
-    show_mountains: bool,
-    show_house: bool,
-    show_birds: bool,
-    show_airplanes: bool,
-    show_fireflies: bool,
-    show_fog: bool,
-    show_snow: bool,
-    show_thunderstorm: bool,
-    show_flowers: bool,
-}
-
-impl RenderQuality {
-    fn for_size(width: u16, height: u16) -> Self {
-        Self {
-            show_mountains: width >= 48 && height >= 11,
-            show_house: width >= 50 && height >= 12,
-            show_birds: width >= 52 && height >= 12,
-            show_airplanes: width >= 80 && height >= 16,
-            show_fireflies: width >= 55 && height >= 12,
-            show_fog: width >= 50 && height >= 12,
-            show_snow: width >= 60 && height >= 13,
-            show_thunderstorm: width >= 70 && height >= 14,
-            show_flowers: width >= 45 && height >= 10,
-        }
-    }
+pub(crate) fn current_weather_summary() -> String {
+    let state = weather_state();
+    let state = state.lock().expect("weather animation mutex poisoned");
+    let weather = state.current_weather;
+    let precip = format_precip_mm(weather.precipitation_mm);
+    format!(
+        "{}  {:.1}C  {:.1}km/h  {}mm",
+        weather.condition.label(),
+        weather.temperature_c,
+        weather.wind_kmh,
+        precip
+    )
 }
 
 pub(super) fn render_pomodoro_road_panel(
@@ -153,13 +93,23 @@ pub(super) fn render_pomodoro_road_panel(
 
     let lanes = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(6), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(6),
+            Constraint::Length(1),
+        ])
         .split(inner);
     let top = lanes[0];
     let world = lanes[1];
     let bottom = lanes[2];
 
-    super::put_text(buf, top.x as i16, top.y as i16, "25:00", ratatui::style::Color::Black);
+    super::put_text(
+        buf,
+        top.x as i16,
+        top.y as i16,
+        "25:00",
+        ratatui::style::Color::Black,
+    );
     let right_x = top.right() as i16 - UnicodeWidthStr::width("00:00") as i16;
     super::put_text(
         buf,
@@ -176,84 +126,112 @@ pub(super) fn render_pomodoro_road_panel(
         ratatui::style::Color::Rgb(210, 150, 0),
     );
 
-    render_weathr_animation(world, buf, pomodoro.running, pomodoro.cycle, finish_sprint);
+    render_weathr_animation(world, buf, finish_sprint);
 
     Paragraph::new(Line::from(Span::styled(
-        if pomodoro.running {
-            "Focus: full weathr scene"
-        } else {
-            "Paused: idling scene"
-        },
+        "Focus: upstream weathr presets",
         Style::default().fg(theme.subtext),
     )))
     .alignment(Alignment::Center)
     .render(bottom, buf);
 }
 
-fn render_weathr_animation(
-    area: Rect,
-    buf: &mut Buffer,
-    running: bool,
-    cycle: u32,
-    finish_sprint: bool,
-) {
+fn render_weathr_animation(area: Rect, buf: &mut Buffer, finish_sprint: bool) {
     let state = weather_state();
     let mut state = state.lock().expect("weather animation mutex poisoned");
-    state.update(area.width, area.height, running, cycle, finish_sprint);
+    state.update(area.width, area.height);
     state.render(area, buf, finish_sprint);
+}
+
+#[derive(Clone, Copy)]
+struct WeatherFlags {
+    is_raining: bool,
+    is_snowing: bool,
+    is_thunderstorm: bool,
+    is_cloudy: bool,
+    is_foggy: bool,
+    is_day: bool,
+}
+
+impl WeatherFlags {
+    fn from_weather(weather: LiveWeather) -> Self {
+        let c = weather.condition;
+        Self {
+            is_raining: c.is_raining() && !c.is_thunderstorm(),
+            is_snowing: c.is_snowing(),
+            is_thunderstorm: c.is_thunderstorm(),
+            is_cloudy: c.is_cloudy(),
+            is_foggy: c.is_foggy(),
+            is_day: weather.is_day,
+        }
+    }
 }
 
 struct WeatherScene {
     renderer: TerminalRenderer,
-    house: House,
-    chimney: ChimneySmoke,
-    clouds: CloudSystem,
+    scene: WorldScene,
     rain: RaindropSystem,
     snow: SnowSystem,
     fog: FogSystem,
-    stars: StarSystem,
-    moon: MoonSystem,
+    thunderstorm: ThunderstormSystem,
+    clouds: CloudSystem,
     birds: BirdSystem,
     airplanes: AirplaneSystem,
-    leaves: FallingLeaves,
+    stars: StarSystem,
+    moon: MoonSystem,
+    chimney: ChimneySmoke,
     fireflies: FireflySystem,
-    thunderstorm: ThunderstormSystem,
-    frame: u64,
+    leaves: FallingLeaves,
+    sunny_animation: SunnyAnimation,
+    animation_controller: AnimationController,
+    last_sunny_frame_time: Instant,
+    current_weather: LiveWeather,
+    weather_rx: std::sync::mpsc::Receiver<LiveWeather>,
     last_update: Instant,
     accumulator: Duration,
-    quality: RenderQuality,
-    preset: WeatherPreset,
 }
 
 impl WeatherScene {
     fn new(width: u16, height: u16) -> Self {
         Self {
             renderer: TerminalRenderer::new(width, height),
-            house: House,
-            chimney: ChimneySmoke::new(),
-            clouds: CloudSystem::new(width, height),
+            scene: WorldScene::new(width, height),
             rain: RaindropSystem::new(width, height, RainIntensity::Light),
             snow: SnowSystem::new(width, height, SnowIntensity::Light),
             fog: FogSystem::new(width, height, FogIntensity::Light),
-            stars: StarSystem::new(width, height),
-            moon: MoonSystem::new(width, height, Some(0.45)),
+            thunderstorm: ThunderstormSystem::new(width, height),
+            clouds: CloudSystem::new(width, height),
             birds: BirdSystem::new(width, height),
             airplanes: AirplaneSystem::new(width, height),
-            leaves: FallingLeaves::new(width, height),
+            stars: StarSystem::new(width, height),
+            moon: MoonSystem::new(width, height, Some(0.5)),
+            chimney: ChimneySmoke::new(),
             fireflies: FireflySystem::new(width, height),
-            thunderstorm: ThunderstormSystem::new(width, height),
-            frame: 0,
+            leaves: FallingLeaves::new(width, height),
+            sunny_animation: SunnyAnimation::new(),
+            animation_controller: AnimationController::new(),
+            last_sunny_frame_time: Instant::now(),
+            current_weather: LiveWeather::default(),
+            weather_rx: {
+                let configured = configured_coords();
+                let (lat, lon) = configured
+                    .map(|(lat, lon)| (Some(lat), Some(lon)))
+                    .unwrap_or((None, None));
+                spawn_weather_worker(lat, lon)
+            },
             last_update: Instant::now(),
             accumulator: Duration::ZERO,
-            quality: RenderQuality::for_size(width, height),
-            preset: WeatherPreset::Stormy,
         }
     }
 
-    fn update(&mut self, width: u16, height: u16, running: bool, cycle: u32, finish_sprint: bool) {
-        self.renderer.resize(width, height);
-        self.quality = RenderQuality::for_size(width, height);
-        self.apply_preset(WeatherPreset::from_state(running, finish_sprint, cycle));
+    fn update(&mut self, area_width: u16, area_height: u16) {
+        self.update_cloud_safe_area(area_width, area_height);
+
+        while let Ok(weather) = self.weather_rx.try_recv() {
+            self.current_weather = weather;
+            self.apply_weather_profile(weather);
+            self.moon.set_phase(0.5);
+        }
 
         let now = Instant::now();
         let delta = now
@@ -264,289 +242,269 @@ impl WeatherScene {
 
         let mut steps = 0u8;
         while self.accumulator >= SIM_STEP && steps < MAX_SIM_STEPS_PER_FRAME {
-            self.advance_simulation(width, height);
+            self.advance_simulation();
             self.accumulator = self.accumulator.saturating_sub(SIM_STEP);
             steps = steps.saturating_add(1);
         }
 
-        if self.frame == 0 {
-            self.advance_simulation(width, height);
+        let flags = WeatherFlags::from_weather(self.current_weather);
+        if !flags.is_raining
+            && !flags.is_thunderstorm
+            && !flags.is_snowing
+            && self.last_sunny_frame_time.elapsed() >= SUNNY_FRAME_DELAY
+        {
+            self.animation_controller.next_frame(&self.sunny_animation);
+            self.last_sunny_frame_time = Instant::now();
         }
     }
 
-    fn advance_simulation(&mut self, width: u16, height: u16) {
-        self.frame = self.frame.wrapping_add(1);
+    fn apply_weather_profile(&mut self, weather: LiveWeather) {
+        let c = weather.condition;
+        self.rain.set_intensity(match c {
+            WeatherCondition::Drizzle => RainIntensity::Drizzle,
+            WeatherCondition::Rain | WeatherCondition::RainShowers => RainIntensity::Light,
+            WeatherCondition::FreezingRain | WeatherCondition::Thunderstorm => RainIntensity::Heavy,
+            WeatherCondition::ThunderstormHail => RainIntensity::Storm,
+            _ => RainIntensity::Light,
+        });
+        self.snow.set_intensity(match c {
+            WeatherCondition::SnowGrains => SnowIntensity::Light,
+            WeatherCondition::SnowShowers => SnowIntensity::Medium,
+            WeatherCondition::Snow => SnowIntensity::Heavy,
+            _ => SnowIntensity::Light,
+        });
+        self.fog.set_intensity(match c {
+            WeatherCondition::Fog => FogIntensity::Medium,
+            _ => FogIntensity::Light,
+        });
 
+        let wind = weather.wind_kmh.clamp(0.0, 45.0);
+        let dir = if c.is_thunderstorm() { 225.0 } else { 255.0 };
+        self.rain.set_wind(wind, dir);
+        self.snow.set_wind((wind * 0.7).max(1.0), dir);
+        self.clouds.set_wind((wind * 0.8).max(4.0), dir);
+    }
+
+    fn advance_simulation(&mut self) {
         let mut rng = rand::rng();
-        let is_day = true;
+        let (w, h) = self.renderer.size();
+        let flags = WeatherFlags::from_weather(self.current_weather);
 
-        self.clouds.set_cloud_color(is_day);
-        self.clouds.set_wind(14.0, 255.0);
-        self.clouds
-            .update(width, height, is_day, CtColor::White, &mut rng);
-
-        if self.preset.is_rainy() {
-            self.rain.update(width, height, &mut rng);
+        if !flags.is_day {
+            self.stars.update(w, h, &mut rng);
+            self.moon.update(w, h);
+            if self.should_show_fireflies() {
+                let horizon = h.saturating_sub(WorldScene::GROUND_HEIGHT);
+                self.fireflies.update(w, h, horizon, &mut rng);
+            }
         }
 
-        if self.quality.show_snow && self.preset.is_snowy() {
-            self.snow.update(width, height, &mut rng);
+        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && flags.is_day {
+            self.birds.update(w, h, &mut rng);
         }
 
-        if self.quality.show_fog && self.preset.is_foggy() {
-            self.fog.update(width, height, &mut rng);
+        if flags.is_cloudy || self.current_weather.condition == WeatherCondition::Clear {
+            let is_clear = self.current_weather.condition == WeatherCondition::Clear;
+            let cloud_color = if is_clear {
+                CtColor::White
+            } else if self.current_weather.condition == WeatherCondition::PartlyCloudy {
+                CtColor::Grey
+            } else {
+                CtColor::DarkGrey
+            };
+            self.clouds.set_cloud_color(is_clear);
+            self.clouds.update(w, h, is_clear, cloud_color, &mut rng);
         }
 
-        self.stars.update(width, height, &mut rng);
-        self.moon.set_phase(((self.frame % 1200) as f64) / 1200.0);
-        self.moon.update(width, height);
-
-        if self.quality.show_birds {
-            self.birds.update(width, height, &mut rng);
-        }
-        if self.quality.show_airplanes {
-            self.airplanes.update(width, height, &mut rng);
+        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && !flags.is_foggy {
+            self.airplanes.update(w, h, &mut rng);
         }
 
-        self.leaves.update(width, height, &mut rng);
-
-        if self.quality.show_fireflies {
-            let horizon = height.saturating_sub(6);
-            self.fireflies.update(width, height, horizon, &mut rng);
+        if flags.is_thunderstorm {
+            self.rain.update(w, h, &mut rng);
+            self.thunderstorm.update(w, h, &mut rng);
+        } else if flags.is_raining {
+            self.rain.update(w, h, &mut rng);
+        } else if flags.is_snowing {
+            self.snow.update(w, h, &mut rng);
         }
 
-        if self.quality.show_thunderstorm && self.preset.has_thunder() {
-            self.thunderstorm.update(width, height, &mut rng);
+        if flags.is_foggy {
+            self.fog.update(w, h, &mut rng);
         }
 
-        if self.quality.show_house {
-            let house_x = width.saturating_sub(House::WIDTH).saturating_sub(2);
-            let house_y = height.saturating_sub(House::HEIGHT).saturating_sub(2);
-            let chimney_x = house_x.saturating_add(House::CHIMNEY_X_OFFSET);
-            let chimney_y = house_y.saturating_add(3);
+        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing {
+            self.leaves.update(w, h, &mut rng);
+        }
+
+        if !flags.is_raining && !flags.is_thunderstorm {
+            let horizon = h.saturating_sub(WorldScene::GROUND_HEIGHT);
+            let house_x = (w / 2).saturating_sub(House::WIDTH / 2);
+            let house_y = horizon.saturating_sub(House::HEIGHT);
+            let chimney_x = house_x + House::CHIMNEY_X_OFFSET;
+            let chimney_y = house_y;
             self.chimney.update(chimney_x, chimney_y, &mut rng);
         }
     }
 
-    fn apply_preset(&mut self, preset: WeatherPreset) {
-        if self.preset == preset {
-            return;
-        }
-        self.preset = preset;
-        match self.preset {
-            WeatherPreset::Sunny => {
-                self.rain.set_intensity(RainIntensity::Drizzle);
-                self.rain.set_wind(0.0, 270.0);
-                self.snow.set_intensity(SnowIntensity::Light);
-                self.snow.set_wind(0.0, 270.0);
-                self.fog.set_intensity(FogIntensity::Light);
-            }
-            WeatherPreset::Rainy => {
-                self.rain.set_intensity(RainIntensity::Heavy);
-                self.rain.set_wind(14.0, 248.0);
-                self.snow.set_intensity(SnowIntensity::Light);
-                self.snow.set_wind(0.0, 270.0);
-                self.fog.set_intensity(FogIntensity::Light);
-            }
-            WeatherPreset::Snowy => {
-                self.rain.set_intensity(RainIntensity::Drizzle);
-                self.rain.set_wind(0.0, 270.0);
-                self.snow.set_intensity(SnowIntensity::Heavy);
-                self.snow.set_wind(3.0, 270.0);
-                self.fog.set_intensity(FogIntensity::Light);
-            }
-            WeatherPreset::Foggy => {
-                self.rain.set_intensity(RainIntensity::Drizzle);
-                self.rain.set_wind(0.0, 270.0);
-                self.snow.set_intensity(SnowIntensity::Light);
-                self.snow.set_wind(0.0, 270.0);
-                self.fog.set_intensity(FogIntensity::Medium);
-            }
-            WeatherPreset::Stormy => {
-                self.rain.set_intensity(RainIntensity::Storm);
-                self.rain.set_wind(18.0, 248.0);
-                self.snow.set_intensity(SnowIntensity::Light);
-                self.snow.set_wind(0.0, 270.0);
-                self.fog.set_intensity(FogIntensity::Heavy);
-            }
-        }
+    fn update_cloud_safe_area(&mut self, area_width: u16, area_height: u16) {
+        let (w, h) = self.renderer.size();
+        let viewport =
+            ViewportTransform::cover(w, h, Rect::new(0, 0, area_width.max(1), area_height.max(1)));
+
+        let visible_w = area_width as f32 / viewport.scale;
+        let visible_h = area_height as f32 / viewport.scale;
+        let left = ((w as f32 - visible_w) * 0.5).max(0.0);
+        let top = ((h as f32 - visible_h) * 0.5).max(0.0);
+        let right = (left + visible_w).min(w as f32);
+        let bottom = (top + visible_h).min(h as f32);
+
+        let margin_x = 2.0;
+        let margin_y = 1.0;
+        self.clouds.set_safe_area(
+            (left + margin_x).min(right),
+            (right - margin_x).max(left),
+            (top + margin_y).min(bottom),
+            (bottom - margin_y).max(top),
+        );
     }
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, finish_sprint: bool) {
         self.renderer.clear();
+        let (w, h) = self.renderer.size();
+        self.scene.update_size(w, h);
 
-        for pass in RENDER_PIPELINE {
-            pass(self, self.quality, finish_sprint);
+        let flags = WeatherFlags::from_weather(self.current_weather);
+
+        if !flags.is_day {
+            let _ = self.stars.render(&mut self.renderer);
+            let _ = self.moon.render(&mut self.renderer);
+            if self.should_show_fireflies() {
+                let _ = self.fireflies.render(&mut self.renderer);
+            }
         }
 
-        self.renderer.flush_to(area, buf);
-    }
+        if self.should_show_sun()
+            && !flags.is_raining
+            && !flags.is_thunderstorm
+            && !flags.is_snowing
+        {
+            let animation_y = if h > 20 { 3 } else { 2 };
+            let _ = self.animation_controller.render_frame(
+                &mut self.renderer,
+                &self.sunny_animation,
+                animation_y,
+            );
+        }
 
-    fn render_sky_layer(&mut self, quality: RenderQuality, _finish_sprint: bool) {
-        let _ = self.stars.render(&mut self.renderer);
-        let _ = self.moon.render(&mut self.renderer);
         let _ = self.clouds.render(&mut self.renderer);
 
-        if quality.show_airplanes && matches!(self.preset, WeatherPreset::Sunny) {
-            let _ = self.airplanes.render(&mut self.renderer);
-        }
-        if quality.show_birds && !matches!(self.preset, WeatherPreset::Stormy) {
+        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && flags.is_day {
             let _ = self.birds.render(&mut self.renderer);
         }
-    }
 
-    fn render_mid_layer(&mut self, quality: RenderQuality, _finish_sprint: bool) {
-        let horizon = self.renderer_height().saturating_sub(6);
-
-        if quality.show_mountains {
-            self.draw_mountains(horizon);
+        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && !flags.is_foggy {
+            let _ = self.airplanes.render(&mut self.renderer);
         }
 
-        if quality.show_house {
-            let house_x = self.renderer_width().saturating_sub(House::WIDTH).saturating_sub(2);
-            let house_y = self
-                .renderer_height()
-                .saturating_sub(House::HEIGHT)
-                .saturating_sub(2);
-            let _ = self.house.render(&mut self.renderer, house_x, house_y, true);
+        let _ = self.scene.render(&mut self.renderer, flags.is_day);
+
+        if !flags.is_raining && !flags.is_thunderstorm {
             let _ = self.chimney.render(&mut self.renderer);
         }
-    }
 
-    fn render_ground_layer(&mut self, quality: RenderQuality, _finish_sprint: bool) {
-        let horizon = self.renderer_height().saturating_sub(6);
-
-        self.draw_road();
-        self.draw_flora(horizon, quality.show_flowers);
-        let _ = self.leaves.render(&mut self.renderer);
-
-        if quality.show_fireflies {
-            let _ = self.fireflies.render(&mut self.renderer);
-        }
-    }
-
-    fn render_fx_layer(&mut self, quality: RenderQuality, finish_sprint: bool) {
-        let width = self.renderer_width();
-        let horizon = self.renderer_height().saturating_sub(6);
-
-        if quality.show_snow && self.preset.is_snowy() {
-            let _ = self.snow.render(&mut self.renderer);
-        }
-        if quality.show_fog && self.preset.is_foggy() {
-            let _ = self.fog.render(&mut self.renderer);
-        }
-        if self.preset.is_rainy() {
+        if flags.is_thunderstorm {
             let _ = self.rain.render(&mut self.renderer);
-        }
-
-        if quality.show_thunderstorm && self.preset.has_thunder() {
             let _ = self.thunderstorm.render(&mut self.renderer);
             if self.thunderstorm.is_flashing() {
-                let flash_y = horizon.saturating_sub(1);
                 let _ = self.renderer.render_line_colored(
                     0,
-                    flash_y,
-                    &".".repeat(width as usize),
+                    h.saturating_sub(2),
+                    &".".repeat(w as usize),
                     CtColor::White,
                 );
             }
+        } else if flags.is_raining {
+            let _ = self.rain.render(&mut self.renderer);
+        } else if flags.is_snowing {
+            let _ = self.snow.render(&mut self.renderer);
+        }
+
+        if flags.is_foggy {
+            let _ = self.fog.render(&mut self.renderer);
+        }
+
+        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing {
+            let _ = self.leaves.render(&mut self.renderer);
         }
 
         if finish_sprint {
-            let flag_x = width.saturating_sub(9);
-            let flag_y = horizon.saturating_sub(2);
+            let flag_x = w.saturating_sub(9);
+            let flag_y = h.saturating_sub(4);
             let _ = self
                 .renderer
                 .render_line_colored(flag_x, flag_y, "FINISH", CtColor::Yellow);
-            let _ = self
-                .renderer
-                .render_char(flag_x.saturating_sub(1), flag_y + 1, '⚑', CtColor::DarkYellow);
-        }
-    }
-
-    fn draw_mountains(&mut self, horizon: u16) {
-        if horizon < 3 {
-            return;
+            let _ = self.renderer.render_char(
+                flag_x.saturating_sub(1),
+                flag_y + 1,
+                '⚑',
+                CtColor::DarkYellow,
+            );
         }
 
-        let mut x = 0u16;
-        while x < self.renderer_width() {
-            let pattern = ["   /\\    ", "  /  \\   ", " /_/\\_\\  "];
-            for (idx, line) in pattern.iter().enumerate() {
-                let y = horizon.saturating_sub(3).saturating_add(idx as u16);
-                let _ = self
-                    .renderer
-                    .render_line_colored(x, y, line, CtColor::DarkGrey);
-            }
-            x = x.saturating_add(12);
-        }
-    }
+        let hud = self.weather_hud_line();
+        let _ = self.renderer.render_line_colored(2, 1, &hud, CtColor::Cyan);
 
-    fn draw_flora(&mut self, horizon: u16, show_flowers: bool) {
-        let width = self.renderer_width();
-        if width < 4 {
-            return;
-        }
-
-        let tree_line = horizon.saturating_add(1);
-        let flowers = horizon.saturating_add(2);
-
-        for x in (2..width.saturating_sub(2)).step_by(9) {
-            let _ = self.renderer.render_char(x, tree_line, '♣', CtColor::Green);
-            let _ = self
-                .renderer
-                .render_char(x.saturating_add(1), tree_line, '♠', CtColor::DarkGreen);
-        }
-
-        if show_flowers {
-            for x in (1..width.saturating_sub(1)).step_by(5) {
-                let flower = match x % 3 {
-                    0 => '✿',
-                    1 => '❀',
-                    _ => '✽',
-                };
-                let _ = self.renderer.render_char(x, flowers, flower, CtColor::Magenta);
-                let _ = self
-                    .renderer
-                    .render_char(x.saturating_add(1), flowers, '"', CtColor::Green);
-            }
-        }
-    }
-
-    fn draw_road(&mut self) {
-        let width = self.renderer_width();
-        let height = self.renderer_height();
-        if width < 2 || height < 3 {
-            return;
-        }
-
-        let road_y = height.saturating_sub(3);
+        let attribution = self.current_weather.attribution;
+        let attr_x = w.saturating_sub(attribution.len() as u16).saturating_sub(2);
+        let attr_y = h.saturating_sub(1);
         let _ = self
             .renderer
-            .render_line_colored(0, road_y, &"=".repeat(width as usize), CtColor::DarkGrey);
-        for x in (0..width).step_by(3) {
-            let _ = self.renderer.render_char(x, road_y + 1, '-', CtColor::Yellow);
+            .render_line_colored(attr_x, attr_y, attribution, CtColor::DarkGrey);
+
+        let viewport =
+            ViewportTransform::cover(self.renderer.size().0, self.renderer.size().1, area);
+        self.renderer.flush_cover_to(area, buf, viewport);
+    }
+
+    fn weather_hud_line(&self) -> String {
+        let precip = format_precip_mm(self.current_weather.precipitation_mm);
+        format!(
+            "Weather: {} | Temp: {:.1}C | Wind: {:.1}km/h | Precip: {}mm | Press 'q' to quit",
+            self.current_weather.condition.ui_text(),
+            self.current_weather.temperature_c,
+            self.current_weather.wind_kmh,
+            precip
+        )
+    }
+
+    fn should_show_sun(&self) -> bool {
+        if !self.current_weather.is_day {
+            return false;
         }
-        let _ = self.renderer.render_line_colored(
-            0,
-            height.saturating_sub(1),
-            &"_".repeat(width as usize),
-            CtColor::Green,
+        matches!(
+            self.current_weather.condition,
+            WeatherCondition::Clear | WeatherCondition::PartlyCloudy
+        )
+    }
+
+    fn should_show_fireflies(&self) -> bool {
+        if self.current_weather.is_day {
+            return false;
+        }
+        let is_warm = self.current_weather.temperature_c > 15.0;
+        let clear_night = matches!(
+            self.current_weather.condition,
+            WeatherCondition::Clear | WeatherCondition::PartlyCloudy
         );
-    }
-
-    fn renderer_width(&self) -> u16 {
-        self.renderer.size().0
-    }
-
-    fn renderer_height(&self) -> u16 {
-        self.renderer.size().1
+        let c = self.current_weather.condition;
+        is_warm && clear_night && !c.is_raining() && !c.is_thunderstorm() && !c.is_snowing()
     }
 }
 
 fn weather_state() -> &'static Mutex<WeatherScene> {
     static STATE: OnceLock<Mutex<WeatherScene>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(WeatherScene::new(100, 28)))
+    STATE.get_or_init(|| Mutex::new(WeatherScene::new(LOGICAL_WIDTH, LOGICAL_HEIGHT)))
 }
 
 fn phase_seconds() -> f32 {
@@ -556,13 +514,7 @@ fn phase_seconds() -> f32 {
         .as_secs_f32()
 }
 
-fn render_pomodoro_countdown(
-    area: Rect,
-    buf: &mut Buffer,
-    text: &str,
-    shift_x: i16,
-    shift_y: i16,
-) {
+fn render_pomodoro_countdown(area: Rect, buf: &mut Buffer, text: &str, shift_x: i16, shift_y: i16) {
     let mut lines = super::figlet_lines(text, area.width as usize);
     if lines.is_empty() {
         lines.push(text.to_string());
@@ -580,6 +532,20 @@ fn render_pomodoro_countdown(
         if y < area.y as i16 || y >= area.bottom() as i16 {
             break;
         }
-        super::put_centered(buf, shifted, y, line, ratatui::style::Color::Rgb(208, 42, 42));
+        super::put_centered(
+            buf,
+            shifted,
+            y,
+            line,
+            ratatui::style::Color::Rgb(208, 42, 42),
+        );
+    }
+}
+
+fn format_precip_mm(value: f32) -> String {
+    if !value.is_finite() || value <= 0.05 {
+        "0".to_string()
+    } else {
+        format!("{value:.1}")
     }
 }

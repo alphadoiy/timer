@@ -19,6 +19,7 @@ use crate::{
     modes::{clock::ClockMode, pomodoro::PomodoroState},
     render::DashboardView,
     theme::Theme,
+    weather_live::configure_location,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +145,7 @@ impl App {
 }
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    configure_location(cli.weather_coords(), cli.auto_location);
     let mut terminal = setup_terminal()?;
     let result = run_app(&mut terminal, cli.initial_mode());
     restore_terminal(terminal)?;
@@ -166,9 +168,7 @@ fn run_app(terminal: &mut DefaultTerminal, initial_mode: ModeKind) -> anyhow::Re
         if event::poll(wait).context("failed to poll terminal events")? {
             let event = event::read().context("failed to read terminal event")?;
             app.handle_event(event, Instant::now());
-            while event::poll(Duration::from_millis(0))
-                .context("failed to poll terminal events")?
-            {
+            while event::poll(Duration::from_millis(0)).context("failed to poll terminal events")? {
                 let event = event::read().context("failed to read terminal event")?;
                 app.handle_event(event, Instant::now());
             }

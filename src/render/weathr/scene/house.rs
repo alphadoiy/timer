@@ -21,6 +21,14 @@ impl House {
     pub const HEIGHT: u16 = 13;
     pub const CHIMNEY_X_OFFSET: u16 = 10;
 
+    pub fn height(&self) -> u16 {
+        Self::HEIGHT
+    }
+
+    pub fn width(&self) -> u16 {
+        Self::WIDTH
+    }
+
     pub fn get_ascii(&self) -> Vec<&'static str> {
         vec![
             "          (                  ",
