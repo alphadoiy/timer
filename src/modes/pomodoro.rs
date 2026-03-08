@@ -150,7 +150,7 @@ impl PomodoroState {
     fn next_phase(&self) -> PhaseKind {
         match self.phase {
             PhaseKind::Work => {
-                if self.cycle % 4 == 0 {
+                if self.cycle.is_multiple_of(4) {
                     PhaseKind::LongBreak
                 } else {
                     PhaseKind::ShortBreak

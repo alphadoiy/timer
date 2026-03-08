@@ -87,15 +87,15 @@ impl Animator {
     }
 
     pub fn tick(&mut self, now: Instant) {
-        if let Some(transition) = self.transition {
-            if now.duration_since(transition.started_at) >= transition.duration {
-                self.transition = None;
-            }
+        if let Some(transition) = self.transition
+            && now.duration_since(transition.started_at) >= transition.duration
+        {
+            self.transition = None;
         }
-        if let Some(celebration) = self.celebration {
-            if now.duration_since(celebration.started_at) >= celebration.duration {
-                self.celebration = None;
-            }
+        if let Some(celebration) = self.celebration
+            && now.duration_since(celebration.started_at) >= celebration.duration
+        {
+            self.celebration = None;
         }
     }
 
@@ -176,14 +176,7 @@ impl Animator {
         }
     }
 
-    fn apply_transition(&self, mut pose: SpritePose, transition: Transition, t: f32) -> SpritePose {
-        let slide = if transition.from == ModeKind::Clock && transition.to == ModeKind::Pomodoro {
-            1.0
-        } else {
-            -1.0
-        };
-        pose.dial_offset_x += (ease_in_out(t) * 4.0 * slide).round() as i16;
-        pose.dial_offset_y -= (ease_out_bounce(t) * 2.0).round() as i16;
+    fn apply_transition(&self, mut pose: SpritePose, _transition: Transition, t: f32) -> SpritePose {
         pose.radius_scale *= 0.94 + ease_out_back(t) * 0.06;
         pose.tilt += wave(t * std::f32::consts::TAU * 1.5) * 0.12;
         pose.pulse += 0.15 * (1.0 - (t - 0.5).abs() * 2.0).max(0.0);
@@ -219,14 +212,6 @@ fn seconds_f32(now: Instant) -> f32 {
 
 fn wave(v: f32) -> f32 {
     v.sin()
-}
-
-fn ease_in_out(t: f32) -> f32 {
-    if t < 0.5 {
-        4.0 * t * t * t
-    } else {
-        1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
-    }
 }
 
 fn ease_out_back(t: f32) -> f32 {

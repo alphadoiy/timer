@@ -5,11 +5,12 @@ use std::{
 
 use anyhow::Context;
 use crossterm::{
+    cursor::Hide,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{DefaultTerminal, Terminal};
+use ratatui::{DefaultTerminal, Terminal, widgets::Clear};
 use sysinfo::System;
 
 use crate::{
@@ -125,6 +126,7 @@ impl App {
 
         terminal.draw(|frame| {
             let size = frame.area();
+            frame.render_widget(Clear, size);
             frame.render_widget(
                 DashboardView {
                     mode: self.mode,
@@ -164,6 +166,12 @@ fn run_app(terminal: &mut DefaultTerminal, initial_mode: ModeKind) -> anyhow::Re
         if event::poll(wait).context("failed to poll terminal events")? {
             let event = event::read().context("failed to read terminal event")?;
             app.handle_event(event, Instant::now());
+            while event::poll(Duration::from_millis(0))
+                .context("failed to poll terminal events")?
+            {
+                let event = event::read().context("failed to read terminal event")?;
+                app.handle_event(event, Instant::now());
+            }
         }
     }
 
@@ -184,9 +192,11 @@ fn prev_mode(mode: ModeKind) -> ModeKind {
 fn setup_terminal() -> anyhow::Result<DefaultTerminal> {
     enable_raw_mode().context("failed to enable raw mode")?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).context("failed to enter alternate screen")?;
-    let terminal = Terminal::new(ratatui::backend::CrosstermBackend::new(stdout))
+    execute!(stdout, EnterAlternateScreen, Hide)
+        .context("failed to initialize terminal screen state")?;
+    let mut terminal = Terminal::new(ratatui::backend::CrosstermBackend::new(stdout))
         .context("failed to create terminal")?;
+    terminal.hide_cursor().context("failed to hide cursor")?;
     Ok(terminal)
 }
 

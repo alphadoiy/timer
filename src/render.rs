@@ -1,7 +1,4 @@
-use std::{
-    f32::consts::{FRAC_PI_2, TAU},
-    sync::OnceLock,
-};
+use std::sync::OnceLock;
 
 use figlet_rs::FIGfont;
 use ratatui::{
@@ -19,6 +16,10 @@ use crate::{
     modes::{clock::ClockSnapshot, pomodoro::PomodoroSnapshot},
     theme::Theme,
 };
+
+mod clock;
+mod pomodoro;
+mod weathr;
 
 pub struct DashboardView<'a> {
     pub mode: ModeKind,
@@ -47,7 +48,8 @@ impl Widget for DashboardView<'_> {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(2),
-                Constraint::Min(16),
+                Constraint::Min(15),
+                Constraint::Length(1),
                 Constraint::Length(2),
             ])
             .split(inner);
@@ -55,6 +57,7 @@ impl Widget for DashboardView<'_> {
         self.render_header(sections[0], buf);
         self.render_body(sections[1], buf);
         self.render_footer(sections[2], buf);
+        self.render_status_bar(sections[3], buf);
     }
 }
 
@@ -92,7 +95,7 @@ impl DashboardView<'_> {
             .title(Line::from(Span::styled(
                 match self.mode {
                     ModeKind::Clock => " Analog Clock ",
-                    ModeKind::Pomodoro => " Pomodoro Dial ",
+                    ModeKind::Pomodoro => " Pomodoro Road ",
                 },
                 Style::default()
                     .fg(self.theme.highlight)
@@ -103,21 +106,11 @@ impl DashboardView<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
-        let panes = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(78), Constraint::Percentage(22)])
-            .split(inner);
-
-        render_braille_dial(
-            panes[0],
-            buf,
-            self.pose,
-            self.theme,
-            self.mode,
-            self.clock,
-            self.pomodoro,
-        );
-        render_figlet_clock(panes[1], buf, self.clock, self.theme);
+        if self.mode == ModeKind::Clock {
+            clock::render_clock_visual_panel(inner, buf, self.pose, self.theme, self.clock);
+        } else {
+            pomodoro::render_pomodoro_road_panel(inner, buf, self.pomodoro, self.pose, self.theme);
+        }
     }
 
     fn render_info_panel(&self, area: Rect, buf: &mut Buffer) {
@@ -136,6 +129,7 @@ impl DashboardView<'_> {
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
+                Constraint::Length(4),
                 Constraint::Length(4),
                 Constraint::Length(4),
                 Constraint::Length(4),
@@ -217,22 +211,36 @@ impl DashboardView<'_> {
 
         Paragraph::new(vec![
             Line::from(Span::styled(
-                format!(
-                    "CPU {:>5.1}%   MEM {:>4}/{:>4} MiB",
-                    self.system.cpu_usage,
-                    self.system.memory_used_mib,
-                    self.system.memory_total_mib
-                ),
-                Style::default().fg(self.theme.text),
+                self.weather_label(),
+                Style::default()
+                    .fg(self.theme.highlight)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "Space start/pause   r reset   q quit",
+                "Scene preset",
                 Style::default().fg(self.theme.subtext),
             )),
         ])
-        .block(box_block("DevOps Status", self.theme))
+        .block(box_block("Weather", self.theme))
         .alignment(Alignment::Center)
         .render(rows[4], buf);
+
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                format!(
+                    "{:>5.1}% CPU   {:>4}/{:>4} MiB",
+                    self.system.cpu_usage, self.system.memory_used_mib, self.system.memory_total_mib
+                ),
+                Style::default().fg(self.theme.highlight),
+            )),
+            Line::from(Span::styled(
+                "Live system feed",
+                Style::default().fg(self.theme.subtext),
+            )),
+        ])
+        .block(box_block("System", self.theme))
+        .alignment(Alignment::Center)
+        .render(rows[5], buf);
     }
 
     fn render_footer(&self, area: Rect, buf: &mut Buffer) {
@@ -251,455 +259,85 @@ impl DashboardView<'_> {
         .alignment(Alignment::Center)
         .render(area, buf);
     }
-}
 
-fn render_figlet_clock(area: Rect, buf: &mut Buffer, clock: &ClockSnapshot, theme: Theme) {
-    let digital = clock.time_text.clone();
-    let mut lines = figlet_lines(&digital, area.width as usize);
-    if lines.is_empty() {
-        lines.push(digital);
+    fn render_status_bar(&self, area: Rect, buf: &mut Buffer) {
+        let mode = if self.mode == ModeKind::Clock {
+            "CLOCK"
+        } else {
+            self.pomodoro.phase.label()
+        };
+        let status = if self.pomodoro.completed {
+            "COMPLETED"
+        } else if self.pomodoro.running {
+            "RUNNING"
+        } else {
+            "PAUSED"
+        };
+        let line = format!(
+            " {mode} | CPU {:>5.1}% | MEM {:>4}/{:>4} MiB | {} | [Tab/←/→] switch  [Space] start/pause  [r] reset  [q] quit ",
+            self.system.cpu_usage,
+            self.system.memory_used_mib,
+            self.system.memory_total_mib,
+            status
+        );
+        Paragraph::new(Line::from(Span::styled(
+            line,
+            Style::default()
+                .fg(self.theme.text)
+                .add_modifier(Modifier::BOLD),
+        )))
+        .alignment(Alignment::Center)
+        .render(area, buf);
     }
 
-    let start_y = area.y + (area.height.saturating_sub(lines.len() as u16)) / 2;
+    fn weather_label(&self) -> &'static str {
+        if self.pomodoro.running && self.pomodoro.remaining.as_secs() <= 10 && !self.pomodoro.completed
+        {
+            return "Stormy";
+        }
+        if !self.pomodoro.running {
+            return "Foggy";
+        }
+        match self.pomodoro.cycle % 4 {
+            1 => "Sunny",
+            2 => "Rainy",
+            3 => "Snowy",
+            _ => "Sunny",
+        }
+    }
+}
+
+fn render_figlet_time(area: Rect, buf: &mut Buffer, text: &str, theme: Theme) {
+    render_figlet_time_shifted(area, buf, text, theme, 0, 0);
+}
+
+fn render_figlet_time_shifted(
+    area: Rect,
+    buf: &mut Buffer,
+    text: &str,
+    theme: Theme,
+    shift_x: i16,
+    shift_y: i16,
+) {
+    let mut lines = figlet_lines(text, area.width as usize);
+    if lines.is_empty() {
+        lines.push(text.to_string());
+    }
+
+    let mut start_y = area.y as i16 + (area.height.saturating_sub(lines.len() as u16) / 2) as i16;
+    start_y += shift_y;
+    let shifted = Rect {
+        x: area.x.saturating_add_signed(shift_x),
+        y: area.y,
+        width: area.width,
+        height: area.height,
+    };
     for (idx, line) in lines.iter().enumerate() {
-        let y = start_y + idx as u16;
-        if y >= area.bottom() {
+        let y = start_y + idx as i16;
+        if y < area.y as i16 || y >= area.bottom() as i16 {
             break;
         }
-        put_centered(buf, area, y as i16, line, theme.accent);
-    }
-}
-
-fn render_braille_dial(
-    area: Rect,
-    buf: &mut Buffer,
-    pose: SpritePose,
-    theme: Theme,
-    mode: ModeKind,
-    clock: &ClockSnapshot,
-    pomodoro: PomodoroSnapshot,
-) {
-    let mut canvas = BrailleCanvas::new(area);
-    let center_x = canvas.width_sub as f32 / 2.0 + pose.dial_offset_x as f32 * 2.0;
-    let center_y = canvas.height_sub as f32 / 2.0 + pose.dial_offset_y as f32 * 4.0;
-    let radius =
-        (canvas.width_sub.min(canvas.height_sub) as f32 * 0.40 * pose.radius_scale).max(8.0);
-
-    // Slimmed outer rim to keep the contour crisp without feeling too thick.
-    canvas.draw_ellipse(
-        center_x,
-        center_y,
-        radius + 0.35,
-        radius + 0.35,
-        theme.outline,
-        1.8,
-    );
-    canvas.draw_ellipse(
-        center_x,
-        center_y,
-        radius - 0.35,
-        radius - 0.35,
-        theme.outline,
-        1.8,
-    );
-    canvas.draw_ellipse(
-        center_x,
-        center_y,
-        radius - 2.0,
-        radius - 2.0,
-        theme.accent_soft,
-        4.0,
-    );
-    draw_dial_ticks(
-        &mut canvas,
-        center_x,
-        center_y,
-        radius,
-        theme.subtext,
-        theme.outline,
-    );
-
-    match mode {
-        ModeKind::Clock => {
-            let second_turn = clock.second_angle + pose.second_sweep + pose.tilt;
-            draw_hour_hand(
-                &mut canvas,
-                center_x,
-                center_y,
-                radius * 0.50,
-                clock.hour_angle + pose.hour_sweep + pose.tilt,
-                theme.hour_hand,
-            );
-            draw_minute_hand(
-                &mut canvas,
-                center_x,
-                center_y,
-                radius * 0.78,
-                clock.minute_angle + pose.minute_sweep + pose.tilt,
-                theme.minute_hand,
-            );
-            draw_second_hand(
-                &mut canvas,
-                center_x,
-                center_y,
-                radius * 0.93,
-                second_turn,
-                theme.second_hand,
-            );
-        }
-        ModeKind::Pomodoro => {
-            let turn = (1.0 - pomodoro.progress) + pose.minute_sweep + pose.tilt;
-            draw_hand_with_shadow(
-                &mut canvas,
-                center_x,
-                center_y,
-                radius * 0.74,
-                turn,
-                1.0,
-                theme.danger,
-                theme.shadow,
-            );
-            draw_progress_ring(
-                &mut canvas,
-                center_x,
-                center_y,
-                radius + 2.0,
-                pomodoro.progress,
-                pose.ring_pulse,
-                if pomodoro.completed {
-                    theme.success
-                } else {
-                    theme.danger
-                },
-                theme.subtext,
-            );
-        }
-    }
-
-    canvas.render(buf);
-    put(
-        buf,
-        sub_to_cell_x(area, center_x),
-        sub_to_cell_y(area, center_y),
-        "●",
-        theme.accent,
-    );
-    overlay_dial_labels(buf, area, center_x, center_y, radius, theme);
-}
-
-fn draw_dial_ticks(
-    canvas: &mut BrailleCanvas,
-    cx: f32,
-    cy: f32,
-    radius: f32,
-    mark: ratatui::style::Color,
-    cardinal: ratatui::style::Color,
-) {
-    for i in 0..60 {
-        let t = i as f32 / 60.0;
-        let theta = t * TAU - FRAC_PI_2;
-        let c = theta.cos();
-        let s = theta.sin();
-        let outer_x = cx + c * radius;
-        let outer_y = cy + s * radius;
-        let inner_scale = if i % 5 == 0 { 0.80 } else { 0.92 };
-        let inner_x = cx + c * radius * inner_scale;
-        let inner_y = cy + s * radius * inner_scale;
-        if i % 15 == 0 {
-            draw_thick_line(canvas, inner_x, inner_y, outer_x, outer_y, 1.6, cardinal);
-        } else if i % 5 == 0 {
-            draw_thick_line(canvas, inner_x, inner_y, outer_x, outer_y, 1.4, cardinal);
-        } else {
-            canvas.draw_line(inner_x, inner_y, outer_x, outer_y, mark);
-        }
-    }
-}
-
-fn draw_hand_with_shadow(
-    canvas: &mut BrailleCanvas,
-    cx: f32,
-    cy: f32,
-    length: f32,
-    turn: f32,
-    thickness: f32,
-    color: ratatui::style::Color,
-    shadow: ratatui::style::Color,
-) {
-    let (end_x, end_y) = hand_endpoint(cx, cy, length, turn);
-    draw_thick_line(
-        canvas,
-        cx + 1.0,
-        cy + 1.0,
-        end_x + 1.0,
-        end_y + 1.0,
-        thickness,
-        shadow,
-    );
-    draw_thick_line(canvas, cx, cy, end_x, end_y, thickness, color);
-}
-
-fn draw_hour_hand(
-    canvas: &mut BrailleCanvas,
-    cx: f32,
-    cy: f32,
-    length: f32,
-    turn: f32,
-    core: ratatui::style::Color,
-) {
-    let theta = turn * TAU - FRAC_PI_2;
-    let dx = theta.cos();
-    let dy = theta.sin();
-    let nx = -dy;
-    let ny = dx;
-    let shaft_end = length * 0.90;
-    draw_thick_line(
-        canvas,
-        cx,
-        cy,
-        cx + dx * shaft_end,
-        cy + dy * shaft_end,
-        3.2,
-        core,
-    );
-    let (tip_x, tip_y) = hand_endpoint(cx, cy, length, turn);
-    // Blunt cap to keep hour-hand silhouette distinct from minute-hand needle.
-    draw_thick_line(
-        canvas,
-        tip_x - nx * 1.35,
-        tip_y - ny * 1.35,
-        tip_x + nx * 1.35,
-        tip_y + ny * 1.35,
-        0.35,
-        core,
-    );
-}
-
-fn draw_minute_hand(
-    canvas: &mut BrailleCanvas,
-    cx: f32,
-    cy: f32,
-    length: f32,
-    turn: f32,
-    core: ratatui::style::Color,
-) {
-    let theta = turn * TAU - FRAC_PI_2;
-    let dx = theta.cos();
-    let dy = theta.sin();
-    let nx = -dy;
-    let ny = dx;
-    let shaft_end = length * 0.94;
-    draw_thick_line(
-        canvas,
-        cx,
-        cy,
-        cx + dx * shaft_end,
-        cy + dy * shaft_end,
-        1.05,
-        core,
-    );
-    let (tip_x, tip_y) = hand_endpoint(cx, cy, length, turn);
-    let (shaft_x, shaft_y) = hand_endpoint(cx, cy, shaft_end, turn);
-    draw_thick_line(
-        canvas,
-        shaft_x - nx * 0.9,
-        shaft_y - ny * 0.9,
-        tip_x,
-        tip_y,
-        0.0,
-        core,
-    );
-    draw_thick_line(
-        canvas,
-        shaft_x + nx * 0.9,
-        shaft_y + ny * 0.9,
-        tip_x,
-        tip_y,
-        0.0,
-        core,
-    );
-}
-
-fn draw_second_hand(
-    canvas: &mut BrailleCanvas,
-    cx: f32,
-    cy: f32,
-    length: f32,
-    turn: f32,
-    color: ratatui::style::Color,
-) {
-    let theta = turn * TAU - FRAC_PI_2;
-    let dx = theta.cos();
-    let dy = theta.sin();
-    let nx = -dy;
-    let ny = dx;
-    let steps = length.ceil().max(1.0) as i32;
-
-    for i in 0..=steps {
-        let t = i as f32 / steps as f32;
-        let px = cx + dx * length * t;
-        let py = cy + dy * length * t;
-        let shade = lerp_color(scale_color(color, 0.42), color, t);
-        canvas.plot(px.round() as i32, py.round() as i32, shade);
-
-        // Low-luminance side pixels smooth diagonal motion on the braille grid.
-        let aa = scale_color(color, 0.18);
-        canvas.plot(
-            (px + nx * 0.8).round() as i32,
-            (py + ny * 0.8).round() as i32,
-            aa,
-        );
-        canvas.plot(
-            (px - nx * 0.8).round() as i32,
-            (py - ny * 0.8).round() as i32,
-            aa,
-        );
-    }
-
-    let (tip_x, tip_y) = hand_endpoint(cx, cy, length + 1.2, turn);
-    canvas.plot(tip_x.round() as i32, tip_y.round() as i32, color);
-
-    let (tail_x, tail_y) = hand_endpoint(cx, cy, -length * 0.16, turn);
-    canvas.draw_line(cx, cy, tail_x, tail_y, scale_color(color, 0.55));
-
-    // Counterweight dot for a realistic second-hand balance.
-    canvas.plot(tail_x.round() as i32, tail_y.round() as i32, color);
-    canvas.plot((tail_x + 1.0).round() as i32, tail_y.round() as i32, color);
-    canvas.plot(tail_x.round() as i32, (tail_y + 1.0).round() as i32, color);
-    canvas.plot(
-        (tail_x + 1.0).round() as i32,
-        (tail_y + 1.0).round() as i32,
-        color,
-    );
-}
-
-fn hand_endpoint(cx: f32, cy: f32, length: f32, turn: f32) -> (f32, f32) {
-    let theta = turn * TAU - FRAC_PI_2;
-    (cx + theta.cos() * length, cy + theta.sin() * length)
-}
-
-fn overlay_dial_labels(
-    buf: &mut Buffer,
-    area: Rect,
-    center_x: f32,
-    center_y: f32,
-    radius: f32,
-    theme: Theme,
-) {
-    let labels = [
-        ("12", -FRAC_PI_2),
-        ("3", 0.0),
-        ("6", FRAC_PI_2),
-        ("9", std::f32::consts::PI),
-    ];
-    for (label, theta) in labels {
-        let x = center_x + theta.cos() * radius * 0.68;
-        let y = center_y + theta.sin() * radius * 0.68;
-        let cell_x = sub_to_cell_x(area, x);
-        let cell_y = sub_to_cell_y(area, y);
-        if label == "12" || label == "6" {
-            put_centered(
-                buf,
-                Rect::new(area.x, cell_y as u16, area.width, 1),
-                cell_y,
-                label,
-                theme.accent_soft,
-            );
-        } else {
-            put(buf, cell_x, cell_y, label, theme.accent_soft);
-        }
-    }
-}
-
-fn sub_to_cell_x(area: Rect, x_sub: f32) -> i16 {
-    area.x as i16 + (x_sub / 2.0).round() as i16
-}
-
-fn sub_to_cell_y(area: Rect, y_sub: f32) -> i16 {
-    area.y as i16 + (y_sub / 4.0).round() as i16
-}
-
-fn scale_color(color: ratatui::style::Color, factor: f32) -> ratatui::style::Color {
-    match color {
-        ratatui::style::Color::Rgb(r, g, b) => ratatui::style::Color::Rgb(
-            ((r as f32) * factor).clamp(0.0, 255.0) as u8,
-            ((g as f32) * factor).clamp(0.0, 255.0) as u8,
-            ((b as f32) * factor).clamp(0.0, 255.0) as u8,
-        ),
-        _ => color,
-    }
-}
-
-fn lerp_color(
-    from: ratatui::style::Color,
-    to: ratatui::style::Color,
-    t: f32,
-) -> ratatui::style::Color {
-    match (from, to) {
-        (ratatui::style::Color::Rgb(fr, fg, fb), ratatui::style::Color::Rgb(tr, tg, tb)) => {
-            let t = t.clamp(0.0, 1.0);
-            ratatui::style::Color::Rgb(
-                (fr as f32 + (tr as f32 - fr as f32) * t).round() as u8,
-                (fg as f32 + (tg as f32 - fg as f32) * t).round() as u8,
-                (fb as f32 + (tb as f32 - fb as f32) * t).round() as u8,
-            )
-        }
-        _ => to,
-    }
-}
-
-fn draw_progress_ring(
-    canvas: &mut BrailleCanvas,
-    cx: f32,
-    cy: f32,
-    radius: f32,
-    remaining_progress: f32,
-    pulse: f32,
-    active: ratatui::style::Color,
-    inactive: ratatui::style::Color,
-) {
-    let filled = ((1.0 - remaining_progress).clamp(0.0, 1.0) * 180.0) as usize;
-    for idx in 0..180usize {
-        let t = idx as f32 / 180.0;
-        let theta = t * TAU - FRAC_PI_2;
-        let x = cx + theta.cos() * (radius + pulse * 2.5);
-        let y = cy + theta.sin() * (radius + pulse * 2.5);
-        canvas.plot(
-            x.round() as i32,
-            y.round() as i32,
-            if idx <= filled { active } else { inactive },
-        );
-    }
-}
-
-fn draw_thick_line(
-    canvas: &mut BrailleCanvas,
-    x0: f32,
-    y0: f32,
-    x1: f32,
-    y1: f32,
-    thickness: f32,
-    color: ratatui::style::Color,
-) {
-    if thickness <= 0.0 {
-        canvas.draw_line(x0, y0, x1, y1, color);
-        return;
-    }
-
-    let dx = x1 - x0;
-    let dy = y1 - y0;
-    let len = (dx * dx + dy * dy).sqrt().max(1.0);
-    let nx = -dy / len;
-    let ny = dx / len;
-    let steps = thickness.round() as i32;
-    for offset in -steps..=steps {
-        let shift = offset as f32 * 0.7;
-        canvas.draw_line(
-            x0 + nx * shift,
-            y0 + ny * shift,
-            x1 + nx * shift,
-            y1 + ny * shift,
-            color,
-        );
+        put_centered(buf, shifted, y, line, theme.figlet_fg);
     }
 }
 
@@ -765,6 +403,10 @@ fn put(buf: &mut Buffer, x: i16, y: i16, text: &str, color: ratatui::style::Colo
 fn put_centered(buf: &mut Buffer, area: Rect, y: i16, text: &str, color: ratatui::style::Color) {
     let width = UnicodeWidthStr::width(text) as i16;
     let x = area.x as i16 + area.width as i16 / 2 - width / 2;
+    put_text(buf, x, y, text, color);
+}
+
+fn put_text(buf: &mut Buffer, x: i16, y: i16, text: &str, color: ratatui::style::Color) {
     for (offset, ch) in text.chars().enumerate() {
         put(buf, x + offset as i16, y, &ch.to_string(), color);
     }
@@ -943,6 +585,6 @@ mod tests {
         let text: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
         assert!(text.contains("Braille Dial"));
         assert!(text.contains("12:34:56"));
-        assert!(text.contains("DevOps Status"));
+        assert!(text.contains("CPU"));
     }
 }

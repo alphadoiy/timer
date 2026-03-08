@@ -46,3 +46,4 @@
 ## Change Management
 - Keep this file updated when project constraints change.
 - If a new rule conflicts with an existing rule, update this file in the same change.
+- Before every `git commit`, append the intended commit summary to `.codex/commit-log.md`.
