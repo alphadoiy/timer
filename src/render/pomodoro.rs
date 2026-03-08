@@ -103,21 +103,9 @@ pub(super) fn render_pomodoro_road_panel(
     let world = lanes[1];
     let bottom = lanes[2];
 
-    super::put_text(
-        buf,
-        top.x as i16,
-        top.y as i16,
-        "25:00",
-        theme.text,
-    );
+    super::put_text(buf, top.x as i16, top.y as i16, "25:00", theme.text);
     let right_x = top.right() as i16 - UnicodeWidthStr::width("00:00") as i16;
-    super::put_text(
-        buf,
-        right_x,
-        top.y as i16,
-        "00:00",
-        theme.text,
-    );
+    super::put_text(buf, right_x, top.y as i16, "00:00", theme.text);
     super::put_text(
         buf,
         (right_x - 6).max(top.x as i16),

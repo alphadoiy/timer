@@ -2,6 +2,7 @@ pub mod animation;
 pub mod app;
 pub mod cli;
 pub mod modes;
+pub mod music;
 pub mod render;
 pub mod theme;
 pub mod weather_live;

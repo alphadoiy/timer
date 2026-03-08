@@ -108,6 +108,7 @@ impl Animator {
         let mut pose = match mode {
             ModeKind::Clock => self.clock_pose(now),
             ModeKind::Pomodoro => self.pomodoro_pose(pomodoro, now),
+            ModeKind::Music => self.clock_pose(now),
         };
 
         if let Some(transition) = self.transition {

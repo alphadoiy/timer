@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context;
 use crossterm::{
     cursor::Hide,
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -17,6 +17,7 @@ use crate::{
     animation::Animator,
     cli::Cli,
     modes::{clock::ClockMode, pomodoro::PomodoroState},
+    music::{MusicCommand, MusicConfig, MusicEngine, library, queue::TrackQueue},
     render::DashboardView,
     theme::Theme,
     weather_live::configure_location,
@@ -26,6 +27,7 @@ use crate::{
 pub enum ModeKind {
     Clock,
     Pomodoro,
+    Music,
 }
 
 pub trait Mode {
@@ -51,6 +53,9 @@ pub struct App {
     mode: ModeKind,
     clock: ClockMode,
     pomodoro: PomodoroState,
+    music: MusicEngine,
+    music_full_visualizer: bool,
+    music_queue_overlay: bool,
     animator: Animator,
     theme: Theme,
     system: System,
@@ -60,14 +65,29 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(initial_mode: ModeKind, now: Instant) -> Self {
+    pub fn new(initial_mode: ModeKind, now: Instant, cli: &Cli) -> Self {
         let mut system = System::new_all();
         system.refresh_cpu_usage();
         system.refresh_memory();
+
+        let music_cfg = MusicConfig::load().merge_cli(&cli.music_options());
+        let inputs = library::parse_inputs(cli.music_inputs());
+        let tracks = library::build_tracks(&inputs);
+        let mut queue = TrackQueue::new(music_cfg.shuffle, music_cfg.repeat_mode);
+        queue.load(tracks);
+
+        let mut music = MusicEngine::new(queue, music_cfg.volume);
+        if music_cfg.auto_play {
+            music.dispatch(MusicCommand::Play);
+        }
+
         Self {
             mode: initial_mode,
             clock: ClockMode,
             pomodoro: PomodoroState::new(now),
+            music,
+            music_full_visualizer: false,
+            music_queue_overlay: false,
             animator: Animator::new(),
             theme: Theme::default(),
             system_stats: collect_system_stats(&system),
@@ -83,6 +103,10 @@ impl App {
         }
         let from = self.mode;
         self.mode = target;
+        if target != ModeKind::Music {
+            self.music_full_visualizer = false;
+            self.music_queue_overlay = false;
+        }
         self.animator.set_animation(from, target, now);
     }
 
@@ -92,6 +116,7 @@ impl App {
         if completed {
             self.animator.celebrate(now);
         }
+        self.music.update();
         if now.duration_since(self.last_system_refresh) >= Duration::from_secs(1) {
             self.system.refresh_cpu_usage();
             self.system.refresh_memory();
@@ -109,11 +134,79 @@ impl App {
         }
 
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::Tab | KeyCode::Right => self.switch_mode(next_mode(self.mode), now),
-            KeyCode::Left => self.switch_mode(prev_mode(self.mode), now),
-            KeyCode::Char(' ') => self.pomodoro.toggle(now),
-            KeyCode::Char('r') => self.pomodoro.reset(now),
+            KeyCode::Char('q') | KeyCode::Esc => {
+                self.should_quit = true;
+                return;
+            }
+            KeyCode::Tab => {
+                self.switch_mode(next_mode(self.mode), now);
+                return;
+            }
+            _ => {}
+        }
+
+        match self.mode {
+            ModeKind::Clock => match key.code {
+                KeyCode::Right => self.switch_mode(next_mode(self.mode), now),
+                KeyCode::Left => self.switch_mode(prev_mode(self.mode), now),
+                _ => {}
+            },
+            ModeKind::Pomodoro => match key.code {
+                KeyCode::Right => self.switch_mode(next_mode(self.mode), now),
+                KeyCode::Left => self.switch_mode(prev_mode(self.mode), now),
+                KeyCode::Char(' ') => self.pomodoro.toggle(now),
+                KeyCode::Char('r') => self.pomodoro.reset(now),
+                _ => {}
+            },
+            ModeKind::Music => self.handle_music_key(key.code, key.modifiers),
+        }
+    }
+
+    fn handle_music_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        match code {
+            KeyCode::Char(' ') => self.music.dispatch(MusicCommand::Toggle),
+            KeyCode::Char('n') => self.music.dispatch(MusicCommand::Next),
+            KeyCode::Char('p') => self.music.dispatch(MusicCommand::Prev),
+            KeyCode::Char('s') => self.music.dispatch(MusicCommand::ToggleShuffle),
+            KeyCode::Char('m') => self.music.toggle_mute(),
+            KeyCode::Char('v') => self.music.cycle_visualizer_mode(),
+            KeyCode::Char('V') => self.music_full_visualizer = !self.music_full_visualizer,
+            KeyCode::Char('Q') => self.music_queue_overlay = !self.music_queue_overlay,
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                let volume = self.music.snapshot().volume.saturating_add(5).min(100);
+                self.music.dispatch(MusicCommand::SetVolume(volume));
+            }
+            KeyCode::Char('-') => {
+                let volume = self.music.snapshot().volume.saturating_sub(5);
+                self.music.dispatch(MusicCommand::SetVolume(volume));
+            }
+            KeyCode::Right => {
+                let step = if modifiers.contains(KeyModifiers::SHIFT) {
+                    30
+                } else {
+                    5
+                };
+                self.music.dispatch(MusicCommand::Seek(step));
+            }
+            KeyCode::Left => {
+                let step = if modifiers.contains(KeyModifiers::SHIFT) {
+                    -30
+                } else {
+                    -5
+                };
+                self.music.dispatch(MusicCommand::Seek(step));
+            }
+            KeyCode::Up => self.music.move_selection(-1),
+            KeyCode::Down => self.music.move_selection(1),
+            KeyCode::Enter => {
+                let idx = self.music.selected_index();
+                self.music.select_and_play(idx);
+            }
+            KeyCode::Char('r') => self
+                .music
+                .dispatch(MusicCommand::SetRepeat(next_repeat_mode(
+                    self.music.snapshot().repeat_mode,
+                ))),
             _ => {}
         }
     }
@@ -121,6 +214,7 @@ impl App {
     fn draw(&self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         let clock_snapshot = self.clock.snapshot();
         let pomodoro_snapshot = self.pomodoro.snapshot();
+        let music_snapshot = self.music.snapshot();
         let pose = self
             .animator
             .current_pose(self.mode, pomodoro_snapshot, Instant::now());
@@ -133,6 +227,9 @@ impl App {
                     mode: self.mode,
                     clock: &clock_snapshot,
                     pomodoro: pomodoro_snapshot,
+                    music: &music_snapshot,
+                    music_full_visualizer: self.music_full_visualizer,
+                    music_queue_overlay: self.music_queue_overlay,
                     pose,
                     theme: self.theme,
                     system: self.system_stats,
@@ -142,18 +239,26 @@ impl App {
         })?;
         Ok(())
     }
+
+    fn shutdown(&mut self) {
+        self.music.shutdown();
+    }
 }
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
     configure_location(cli.weather_coords(), cli.auto_location);
     let mut terminal = setup_terminal()?;
-    let result = run_app(&mut terminal, cli.initial_mode());
+    let result = run_app(&mut terminal, cli.initial_mode(), &cli);
     restore_terminal(terminal)?;
     result
 }
 
-fn run_app(terminal: &mut DefaultTerminal, initial_mode: ModeKind) -> anyhow::Result<()> {
-    let mut app = App::new(initial_mode, Instant::now());
+fn run_app(
+    terminal: &mut DefaultTerminal,
+    initial_mode: ModeKind,
+    cli: &Cli,
+) -> anyhow::Result<()> {
+    let mut app = App::new(initial_mode, Instant::now(), cli);
     let frame_budget = Duration::from_millis(16);
     let mut next_frame_at = Instant::now();
 
@@ -175,18 +280,32 @@ fn run_app(terminal: &mut DefaultTerminal, initial_mode: ModeKind) -> anyhow::Re
         }
     }
 
+    app.shutdown();
     Ok(())
 }
 
 fn next_mode(mode: ModeKind) -> ModeKind {
     match mode {
         ModeKind::Clock => ModeKind::Pomodoro,
-        ModeKind::Pomodoro => ModeKind::Clock,
+        ModeKind::Pomodoro => ModeKind::Music,
+        ModeKind::Music => ModeKind::Clock,
     }
 }
 
 fn prev_mode(mode: ModeKind) -> ModeKind {
-    next_mode(mode)
+    match mode {
+        ModeKind::Clock => ModeKind::Music,
+        ModeKind::Pomodoro => ModeKind::Clock,
+        ModeKind::Music => ModeKind::Pomodoro,
+    }
+}
+
+fn next_repeat_mode(mode: crate::music::RepeatMode) -> crate::music::RepeatMode {
+    match mode {
+        crate::music::RepeatMode::Off => crate::music::RepeatMode::All,
+        crate::music::RepeatMode::All => crate::music::RepeatMode::One,
+        crate::music::RepeatMode::One => crate::music::RepeatMode::Off,
+    }
 }
 
 fn setup_terminal() -> anyhow::Result<DefaultTerminal> {
