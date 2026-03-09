@@ -94,49 +94,37 @@ impl PlaybackState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VisualizerMode {
-    Bars,
     Bricks,
     Columns,
     Wave,
     Scatter,
     Flame,
-    Pulse,
-    Retro,
     Matrix,
     Binary,
-    Snow,
 }
 
 impl VisualizerMode {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Bars => "Bars",
             Self::Bricks => "Bricks",
             Self::Columns => "Columns",
             Self::Wave => "Wave",
             Self::Scatter => "Scatter",
             Self::Flame => "Flame",
-            Self::Pulse => "Pulse",
-            Self::Retro => "Retro",
             Self::Matrix => "Matrix",
             Self::Binary => "Binary",
-            Self::Snow => "Snow",
         }
     }
 
     pub fn next(self) -> Self {
         match self {
-            Self::Bars => Self::Bricks,
             Self::Bricks => Self::Columns,
             Self::Columns => Self::Wave,
             Self::Wave => Self::Scatter,
             Self::Scatter => Self::Flame,
-            Self::Flame => Self::Retro,
-            Self::Retro => Self::Pulse,
-            Self::Pulse => Self::Matrix,
+            Self::Flame => Self::Matrix,
             Self::Matrix => Self::Binary,
-            Self::Binary => Self::Snow,
-            Self::Snow => Self::Bars,
+            Self::Binary => Self::Bricks,
         }
     }
 }

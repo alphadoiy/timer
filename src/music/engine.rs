@@ -1,4 +1,5 @@
 use std::{
+    io::{Read, Seek, SeekFrom},
     io::BufReader,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -6,6 +7,15 @@ use std::{
 
 use anyhow::{Context, Result};
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use symphonia::{
+    core::{
+        formats::FormatOptions,
+        io::{MediaSource, MediaSourceStream},
+        meta::MetadataOptions,
+        probe::Hint,
+    },
+    default::get_probe,
+};
 
 use super::{
     MusicCommand, MusicSnapshot, PlaybackState, RepeatMode, TrackMeta, VisualizerMode,
@@ -293,7 +303,10 @@ impl MusicEngine {
         let decoder = Decoder::new(BufReader::new(reader)).context("failed to decode track")?;
         self.sample_rate_hz = decoder.sample_rate() as f32;
         let channels = decoder.channels();
-        let total = decoder.total_duration();
+        let total = decoder
+            .total_duration()
+            .or(track.duration)
+            .or_else(|| Self::probe_duration_fallback(&track));
         let tapped = TapSource::new(decoder.convert_samples(), Arc::clone(&self.tap), channels);
 
         if start_at > Duration::ZERO {
@@ -310,6 +323,35 @@ impl MusicEngine {
         self.sink = Some(sink);
         self.last_error = None;
         Ok(())
+    }
+
+    fn probe_duration_fallback(track: &TrackMeta) -> Option<Duration> {
+        let reader = open_reader(track).ok()?;
+        let mut hint = Hint::new();
+        if let Some(ext) = std::path::Path::new(&track.path_or_url)
+            .extension()
+            .and_then(|it| it.to_str())
+        {
+            hint.with_extension(ext);
+        }
+
+        let mss = MediaSourceStream::new(
+            Box::new(SeekableMediaSource { inner: reader }),
+            Default::default(),
+        );
+        let probed = get_probe()
+            .format(
+                &hint,
+                mss,
+                &FormatOptions::default(),
+                &MetadataOptions::default(),
+            )
+            .ok()?;
+        let format = probed.format;
+        let track = format.default_track()?;
+        let params = &track.codec_params;
+        let (frames, sample_rate) = (params.n_frames?, params.sample_rate?);
+        Some(Duration::from_secs_f64(frames as f64 / sample_rate as f64))
     }
 
     fn set_volume(&mut self, volume: u8) {
@@ -373,5 +415,31 @@ impl MusicEngine {
 impl Default for MusicEngine {
     fn default() -> Self {
         Self::new(TrackQueue::new(false, RepeatMode::Off), 80)
+    }
+}
+
+struct SeekableMediaSource {
+    inner: Box<dyn super::provider::ReadSeek>,
+}
+
+impl Read for SeekableMediaSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(buf)
+    }
+}
+
+impl Seek for SeekableMediaSource {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(pos)
+    }
+}
+
+impl MediaSource for SeekableMediaSource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        None
     }
 }

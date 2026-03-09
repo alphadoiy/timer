@@ -443,7 +443,6 @@ impl DashboardView<'_> {
         }
         let bands = self.music.spectrum_bands;
         let styled = match self.music.visualizer_mode {
-            crate::music::VisualizerMode::Bars => styled_from_plain(render_bars(bands, w, h), h),
             crate::music::VisualizerMode::Bricks => {
                 styled_from_plain(render_bricks(bands, w, h), h)
             }
@@ -453,30 +452,19 @@ impl DashboardView<'_> {
             crate::music::VisualizerMode::Wave => {
                 styled_from_plain(render_braille_wave(&self.music.wave_samples, w, h), h)
             }
-            crate::music::VisualizerMode::Scatter => styled_from_plain(
-                render_braille_scatter(bands, w, h, self.music.visualizer_frame),
-                h,
-            ),
+            crate::music::VisualizerMode::Scatter => {
+                render_braille_scatter_styled(bands, w, h, self.music.visualizer_frame)
+            }
             crate::music::VisualizerMode::Flame => styled_from_plain(
                 render_braille_flame(bands, w, h, self.music.visualizer_frame),
                 h,
             ),
-            crate::music::VisualizerMode::Pulse => {
-                render_braille_pulse(bands, w, h, self.music.visualizer_frame)
-            }
-            crate::music::VisualizerMode::Retro => {
-                render_braille_retro(bands, w, h, self.music.visualizer_frame)
-            }
             crate::music::VisualizerMode::Matrix => {
                 render_matrix_styled(bands, w, h, self.music.visualizer_frame)
             }
             crate::music::VisualizerMode::Binary => {
                 render_binary_styled(bands, w, h, self.music.visualizer_frame)
             }
-            crate::music::VisualizerMode::Snow => styled_from_plain(
-                render_braille_snow(bands, w, h, self.music.visualizer_frame),
-                h,
-            ),
         };
 
         for (idx, line) in styled.iter().enumerate() {
@@ -493,30 +481,22 @@ impl DashboardView<'_> {
     }
 
     fn render_cliamp_seek(&self, area: Rect, buf: &mut Buffer) {
-        let progress = if let Some(total) = self.music.duration {
-            if total.is_zero() {
-                0.0
-            } else {
-                self.music.position.as_secs_f32() / total.as_secs_f32()
-            }
-        } else {
-            0.0
-        }
-        .clamp(0.0, 1.0);
         let width = area.width as usize;
         if width == 0 {
             return;
         }
-        let filled = (progress * (width.saturating_sub(1)) as f32).round() as usize;
-        let mut line = String::with_capacity(width);
-        line.push_str(&"━".repeat(filled));
-        line.push('●');
-        line.push_str(&"━".repeat(width.saturating_sub(filled + 1)));
-        Paragraph::new(Line::from(Span::styled(
-            line,
-            Style::default().fg(Color::LightYellow),
-        )))
-        .render(area, buf);
+
+        let progress = self
+            .music
+            .duration
+            .filter(|d| !d.is_zero())
+            .map(|total| (self.music.position.as_secs_f32() / total.as_secs_f32()).clamp(0.0, 1.0));
+        let line = build_visual_progress_line(
+            width,
+            progress,
+            self.music.visualizer_frame,
+        );
+        Paragraph::new(styled_line_to_spans(&line)).render(area, buf);
     }
 
     fn render_cliamp_controls(&self, area: Rect, buf: &mut Buffer) {
@@ -926,6 +906,64 @@ fn progress_bar(progress: f32, width: usize) -> String {
     out
 }
 
+fn build_visual_progress_line(
+    width: usize,
+    progress: Option<f32>,
+    frame: u64,
+) -> StyledVisLine {
+    if width == 0 {
+        return StyledVisLine {
+            text: String::new(),
+            tags: Vec::new(),
+        };
+    }
+
+    if width == 1 {
+        return StyledVisLine {
+            text: "◉".to_string(),
+            tags: vec![6],
+        };
+    }
+
+    let inner = width.saturating_sub(2).max(1);
+    let mut text = String::with_capacity(width);
+    let mut tags = Vec::with_capacity(width);
+    let head = progress.map(|p| (p * inner as f32).round() as usize).unwrap_or(0);
+    let unknown_head = (frame as usize / 2) % inner;
+
+    text.push('╞');
+    tags.push(2);
+
+    for x in 0..inner {
+        let pulse = ((frame as f32 * 0.12 + x as f32 * 0.33).sin() * 0.5 + 0.5).clamp(0.0, 1.0);
+
+        let (ch, tag) = if let Some(_) = progress {
+            if x == head.min(inner.saturating_sub(1)) {
+                ('◉', 8)
+            } else if x < head {
+                let fill = meter_char((0.45 + pulse * 0.55).clamp(0.0, 1.0));
+                let grad = (2 + (x as f32 / inner as f32 * 6.0) as u8).min(8);
+                (fill, grad)
+            } else {
+                (if x % 2 == 0 { '─' } else { '·' }, 1)
+            }
+        } else if x == unknown_head {
+            ('◉', 8)
+        } else if x + 1 == unknown_head || x == unknown_head + 1 {
+            ('•', 6)
+        } else {
+            (if x % 2 == 0 { '─' } else { '·' }, 2)
+        };
+
+        text.push(ch);
+        tags.push(tag);
+    }
+
+    text.push('╡');
+    tags.push(2);
+    StyledVisLine { text, tags }
+}
+
 fn format_duration(duration: std::time::Duration) -> String {
     let total = duration.as_secs();
     let minutes = total / 60;
@@ -977,9 +1015,15 @@ fn spectrum_row_tag(row: usize, total: usize) -> u8 {
 
 fn tag_color(tag: u8) -> Color {
     match tag {
-        2 => Color::LightRed,
-        1 => Color::Yellow,
-        _ => Color::LightGreen,
+        0 => Color::Rgb(72, 188, 141),
+        1 => Color::Rgb(92, 204, 160),
+        2 => Color::Rgb(119, 218, 180),
+        3 => Color::Rgb(154, 224, 162),
+        4 => Color::Rgb(202, 228, 132),
+        5 => Color::Rgb(240, 216, 109),
+        6 => Color::Rgb(253, 186, 89),
+        7 => Color::Rgb(255, 146, 98),
+        _ => Color::Rgb(255, 102, 112),
     }
 }
 
@@ -1017,26 +1061,6 @@ fn vis_band_width(band: usize, total_width: usize, bands: usize) -> usize {
     let base = usable / bands;
     let extra = usable % bands;
     if band < extra { base + 1 } else { base }
-}
-
-fn render_bars(bands: [f32; crate::music::NUM_BANDS], width: usize, height: usize) -> Vec<String> {
-    let mut lines = vec![String::with_capacity(width); height];
-    for row in 0..height {
-        let row_bottom = (height.saturating_sub(1).saturating_sub(row)) as f32 / height as f32;
-        let row_top = (height.saturating_sub(row)) as f32 / height as f32;
-        for b in 0..bands.len() {
-            let band_w = vis_band_width(b, width, bands.len());
-            let level = bands[b].clamp(0.0, 1.0);
-            let ch = frac_block(level, row_bottom, row_top);
-            for _ in 0..band_w {
-                lines[row].push(ch);
-            }
-            if b < bands.len() - 1 {
-                lines[row].push(' ');
-            }
-        }
-    }
-    lines
 }
 
 fn render_bricks(
@@ -1142,19 +1166,23 @@ fn render_braille_wave(samples: &[f32], width: usize, height: usize) -> Vec<Stri
     lines
 }
 
-fn render_braille_scatter(
+fn render_braille_scatter_styled(
     bands: [f32; crate::music::NUM_BANDS],
     width: usize,
     height: usize,
     frame: u64,
-) -> Vec<String> {
+) -> Vec<StyledVisLine> {
     let dot_rows = height * 4;
-    let mut lines = vec![String::with_capacity(width); height];
+    let mut lines = Vec::with_capacity(height);
     for row in 0..height {
+        let mut line = String::with_capacity(width);
+        let mut tags = Vec::with_capacity(width);
+        let vertical = 1.0 - row as f32 / height.saturating_sub(1).max(1) as f32;
         for b in 0..bands.len() {
             let band_w = vis_band_width(b, width, bands.len());
             for c in 0..band_w {
                 let mut braille = 0x2800u32;
+                let mut lit = 0usize;
                 for dr in 0..4 {
                     for dc in 0..2 {
                         let dot_row = row * 4 + dr;
@@ -1164,16 +1192,40 @@ fn render_braille_scatter(
                         let threshold = bands[b] * bands[b] * height_factor;
                         if h < threshold {
                             braille |= BRAILLE_BITS[dr][dc];
+                            lit += 1;
                         }
                     }
                 }
-                lines[row].push(char::from_u32(braille).unwrap_or(' '));
+                line.push(char::from_u32(braille).unwrap_or(' '));
+
+                // Blend local dot density + band energy + slight row gradient.
+                let density = lit as f32 / 8.0;
+                let sparkle_now = scatter_hash(b, row, c, frame / 2);
+                let sparkle_prev = scatter_hash(b, row, c, frame.saturating_sub(2) / 2);
+                let sparkle_smooth = sparkle_now * 0.62 + sparkle_prev * 0.38;
+                let sparkle_boost = if density > 0.0 && sparkle_smooth > 0.90 {
+                    (sparkle_smooth - 0.90) * 2.0
+                } else {
+                    0.0
+                };
+                let wave_phase = frame as f32 * 0.045 + b as f32 * 0.55 + row as f32 * 0.11;
+                let hue_wave = (wave_phase.sin() * 0.5 + 0.5) * bands[b] * 0.08;
+                let base_intensity =
+                    density * 0.55 + bands[b] * 0.30 + vertical * 0.10 + sparkle_boost + hue_wave;
+                let temporal_seed = scatter_hash(b, row, c, frame.saturating_sub(3) / 3);
+                let intensity = (base_intensity * 0.84 + temporal_seed * 0.16)
+                    .clamp(0.0, 1.0)
+                    .powf(0.80);
+                tags.push(scatter_intensity_tag(intensity));
             }
             if b < bands.len() - 1 {
-                lines[row].push(' ');
+                line.push(' ');
+                tags.push(0);
             }
         }
-        truncate_to_char_count(&mut lines[row], width);
+        truncate_to_char_count(&mut line, width);
+        tags.truncate(line.chars().count());
+        lines.push(StyledVisLine { text: line, tags });
     }
     lines
 }
@@ -1222,229 +1274,6 @@ fn render_braille_flame(
             }
         }
         truncate_to_char_count(&mut lines[row], width);
-    }
-    lines
-}
-
-fn render_braille_pulse(
-    bands: [f32; crate::music::NUM_BANDS],
-    width: usize,
-    height: usize,
-    frame: u64,
-) -> Vec<StyledVisLine> {
-    let dot_rows = height * 4;
-    let dot_cols = width * 2;
-    let center_x = dot_cols as f32 / 2.0;
-    let center_y = dot_rows as f32 / 2.0;
-    let x_scale = center_y / center_x.max(1.0);
-    let max_r = center_y - 1.0;
-    let avg_energy = bands.iter().sum::<f32>() / bands.len().max(1) as f32;
-    let shock_phase = ((frame as f32 * 0.10) % 1.0).abs();
-    let shock_r = max_r * (0.3 + 0.7 * shock_phase);
-    let shock_strength = avg_energy * avg_energy * (1.0 - shock_phase * shock_phase);
-    let breath = (frame as f32 * 0.05).sin() * 0.02;
-    let mut lines = Vec::with_capacity(height);
-    for row in 0..height {
-        let mut line = String::with_capacity(width);
-        let mut tags = Vec::with_capacity(width);
-        for c in 0..width {
-            let mut braille = 0x2800u32;
-            let mut max_norm = 0.0f32;
-            for dr in 0..4 {
-                for dc in 0..2 {
-                    let dot_x = (c * 2 + dc) as f32;
-                    let dot_y = (row * 4 + dr) as f32;
-                    let dx = (dot_x - center_x) * x_scale;
-                    let dy = dot_y - center_y;
-                    let dist = (dx * dx + dy * dy).sqrt();
-                    let mut angle = dy.atan2(dx);
-                    if angle < 0.0 {
-                        angle += 2.0 * std::f32::consts::PI;
-                    }
-                    let mut rot_angle = angle + frame as f32 * (0.015 + avg_energy * 0.04);
-                    rot_angle %= 2.0 * std::f32::consts::PI;
-                    let band_pos = rot_angle / (2.0 * std::f32::consts::PI) * bands.len() as f32;
-                    let band_idx = (band_pos.floor() as usize) % bands.len();
-                    let next_band = (band_idx + 1) % bands.len();
-                    let frac = band_pos - band_pos.floor();
-                    let t = (1.0 - (frac * std::f32::consts::PI).cos()) / 2.0;
-                    let energy = bands[band_idx] * (1.0 - t) + bands[next_band] * t;
-                    let blended = energy * 0.6 + avg_energy * 0.4;
-                    let punch = blended * blended;
-                    let r = max_r * (0.08 + breath + 0.92 * punch);
-                    let mut on = r > 0.5 && dist <= r;
-                    if !on && r > 0.5 && dist < r + 1.5 {
-                        let edge_fade = 1.0 - (dist - r) / 1.5;
-                        on = scatter_hash(band_idx, row * 4 + dr, c * 2 + dc, frame)
-                            < edge_fade * 0.7;
-                    }
-                    if !on && shock_strength > 0.05 {
-                        let shock_dist = (dist - shock_r).abs();
-                        let shock_thick = 0.6 + shock_strength * 1.5;
-                        if shock_dist < shock_thick {
-                            let fade = 1.0 - shock_dist / shock_thick;
-                            on = fade > 0.4;
-                        }
-                    }
-                    if on {
-                        braille |= BRAILLE_BITS[dr][dc];
-                        if r > 0.5 {
-                            max_norm = max_norm.max((dist / r).clamp(0.0, 1.0));
-                        }
-                    }
-                }
-            }
-            line.push(char::from_u32(braille).unwrap_or(' '));
-            tags.push(spec_tag(max_norm));
-        }
-        lines.push(StyledVisLine { text: line, tags });
-    }
-    lines
-}
-
-fn render_braille_retro(
-    bands: [f32; crate::music::NUM_BANDS],
-    width: usize,
-    height: usize,
-    frame: u64,
-) -> Vec<StyledVisLine> {
-    let dot_rows = height * 4;
-    let dot_cols = width * 2;
-    let mut grid = vec![0u8; dot_rows * dot_cols];
-    let mut tags = vec![0u8; dot_rows * dot_cols];
-    let horizon = (dot_rows * 2 / 5).max(2);
-    let floor_rows = dot_rows.saturating_sub(horizon);
-    let center_x = (dot_cols.saturating_sub(1)) as f32 / 2.0;
-    let sun_r = horizon as f32 * 0.85;
-
-    for dy in 0..horizon {
-        let row_dist = (horizon - dy) as f32;
-        if row_dist > sun_r {
-            continue;
-        }
-        let half_w = (sun_r * sun_r - row_dist * row_dist).sqrt();
-        if row_dist < sun_r * 0.5 {
-            let sw = (sun_r * 0.15).round().max(1.0) as usize;
-            if (row_dist as usize / sw) % 2 == 1 {
-                continue;
-            }
-        }
-        let left = (center_x - half_w).round().max(0.0) as usize;
-        let right = (center_x + half_w)
-            .round()
-            .min((dot_cols.saturating_sub(1)) as f32) as usize;
-        for dx in left..=right {
-            let idx = dy * dot_cols + dx;
-            grid[idx] = 1;
-            tags[idx] = 1;
-        }
-    }
-
-    if horizon < dot_rows {
-        for dx in 0..dot_cols {
-            let idx = horizon * dot_cols + dx;
-            grid[idx] = 1;
-            tags[idx] = 0;
-        }
-    }
-
-    for i in 0..=18 {
-        let bottom_x = i as f32 * (dot_cols.saturating_sub(1)) as f32 / 18.0;
-        for dy in horizon.saturating_add(1)..dot_rows {
-            let t = (dy.saturating_sub(horizon)) as f32 / floor_rows.max(1) as f32;
-            let screen_x = center_x + (bottom_x - center_x) * t;
-            let ix = screen_x.round() as i32;
-            if ix >= 0 && (ix as usize) < dot_cols {
-                let idx = dy * dot_cols + ix as usize;
-                grid[idx] = 1;
-                if tags[idx] < 2 {
-                    tags[idx] = 0;
-                }
-            }
-        }
-    }
-
-    let scroll = ((frame as f32) * 0.08) % 1.0;
-    for i in 0..10 {
-        let mut z = (i as f32 + scroll) / 10.0;
-        if z > 1.0 {
-            z -= 1.0;
-        }
-        let dy = horizon.saturating_add(1)
-            + (z * z * floor_rows.saturating_sub(2) as f32).round() as usize;
-        if dy > horizon && dy < dot_rows {
-            for dx in 0..dot_cols {
-                let idx = dy * dot_cols + dx;
-                grid[idx] = 1;
-                if tags[idx] < 2 {
-                    tags[idx] = 0;
-                }
-            }
-        }
-    }
-
-    let max_wave = horizon as f32 * 0.85;
-    let mut wave_y = vec![horizon; dot_cols];
-    for (dx, wy_cell) in wave_y.iter_mut().enumerate().take(dot_cols) {
-        let band_f = dx as f32 / dot_cols.saturating_sub(1).max(1) as f32
-            * bands.len().saturating_sub(1) as f32;
-        let bi = band_f.floor() as usize;
-        let frac = band_f - bi as f32;
-        let t = (1.0 - (frac * std::f32::consts::PI).cos()) / 2.0;
-        let level = if bi + 1 < bands.len() {
-            bands[bi] * (1.0 - t) + bands[bi + 1] * t
-        } else {
-            bands[bi]
-        }
-        .max(0.03);
-        let wy = horizon as i32 - (level * max_wave).round() as i32;
-        *wy_cell = wy.clamp(0, dot_rows.saturating_sub(1) as i32) as usize;
-    }
-    for dx in 0..dot_cols {
-        let y = wave_y[dx];
-        let idx = y * dot_cols + dx;
-        grid[idx] = 1;
-        tags[idx] = 2;
-        if dx > 0 {
-            let lo = y.min(wave_y[dx - 1]);
-            let hi = y.max(wave_y[dx - 1]);
-            for fy in lo..=hi {
-                let fi = fy * dot_cols + dx;
-                grid[fi] = 1;
-                tags[fi] = 2;
-            }
-        }
-    }
-
-    let mut lines = Vec::with_capacity(height);
-    for row in 0..height {
-        let mut line = String::with_capacity(width);
-        let mut line_tags = Vec::with_capacity(width);
-        for ch in 0..width {
-            let mut braille = 0x2800u32;
-            let mut cell_tag = 0u8;
-            for dr in 0..4 {
-                for dc in 0..2 {
-                    let dy = row * 4 + dr;
-                    let dx = ch * 2 + dc;
-                    if dy >= dot_rows || dx >= dot_cols {
-                        continue;
-                    }
-                    let idx = dy * dot_cols + dx;
-                    if grid[idx] != 0 {
-                        braille |= BRAILLE_BITS[dr][dc];
-                        cell_tag = cell_tag.max(tags[idx]);
-                    }
-                }
-            }
-            let chr = char::from_u32(braille).unwrap_or(' ');
-            line.push(chr);
-            line_tags.push(cell_tag);
-        }
-        lines.push(StyledVisLine {
-            text: line,
-            tags: line_tags,
-        });
     }
     lines
 }
@@ -1551,53 +1380,6 @@ fn render_binary_styled(
     lines
 }
 
-fn render_braille_snow(
-    bands: [f32; crate::music::NUM_BANDS],
-    width: usize,
-    height: usize,
-    frame: u64,
-) -> Vec<String> {
-    let dot_rows = height * 4;
-    let dot_cols = width * 2;
-    let avg_energy = bands.iter().sum::<f32>() / bands.len().max(1) as f32;
-    let wind_strength = (frame as f32 * 0.03).sin() * (0.5 + avg_energy * 2.0);
-    let mut lines = vec![String::with_capacity(width); height];
-    for (row, line) in lines.iter_mut().enumerate().take(height) {
-        for ch in 0..width {
-            let mut braille = 0x2800u32;
-            for dr in 0..4 {
-                for dc in 0..2 {
-                    let dot_row = row * 4 + dr;
-                    let dot_col = ch * 2 + dc;
-                    let mut band_idx = dot_col * bands.len() / dot_cols.max(1);
-                    if band_idx >= bands.len() {
-                        band_idx = bands.len() - 1;
-                    }
-                    let energy = bands[band_idx];
-                    let col_speed = 1 + ((dot_col as u64 * 7919) % 4) as usize;
-                    let adjusted_row = dot_row as i32 - (frame as i32 * col_speed as i32 / 3);
-                    let wind_drift =
-                        (wind_strength * (dot_row as f32) / dot_rows.max(1) as f32) as i32;
-                    let adjusted_col = dot_col as i32 - wind_drift;
-                    let h = scatter_hash(
-                        band_idx,
-                        adjusted_row.max(0) as usize,
-                        adjusted_col.max(0) as usize,
-                        0,
-                    );
-                    let threshold = 0.015 + energy * 0.05;
-                    if h < threshold {
-                        braille |= BRAILLE_BITS[dr][dc];
-                    }
-                }
-            }
-            line.push(char::from_u32(braille).unwrap_or(' '));
-        }
-        truncate_to_char_count(line, width);
-    }
-    lines
-}
-
 fn frac_block(level: f32, row_bottom: f32, row_top: f32) -> char {
     if level >= row_top {
         return '█';
@@ -1610,13 +1392,31 @@ fn frac_block(level: f32, row_bottom: f32, row_top: f32) -> char {
     ' '
 }
 
-fn spec_tag(norm: f32) -> u8 {
-    if norm >= 0.6 {
-        2
-    } else if norm >= 0.3 {
-        1
-    } else {
+fn meter_char(level: f32) -> char {
+    const METER: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let idx = (level.clamp(0.0, 1.0) * (METER.len().saturating_sub(1)) as f32).round() as usize;
+    METER[idx.min(METER.len().saturating_sub(1))]
+}
+
+fn scatter_intensity_tag(intensity: f32) -> u8 {
+    if intensity < 0.10 {
         0
+    } else if intensity < 0.19 {
+        1
+    } else if intensity < 0.29 {
+        2
+    } else if intensity < 0.40 {
+        3
+    } else if intensity < 0.53 {
+        4
+    } else if intensity < 0.66 {
+        5
+    } else if intensity < 0.77 {
+        6
+    } else if intensity < 0.88 {
+        7
+    } else {
+        8
     }
 }
 
@@ -1934,12 +1734,11 @@ mod tests {
     fn music_visualizer_modes_render_without_panic() {
         let area = Rect::new(0, 0, 120, 36);
         for mode in [
+            VisualizerMode::Bricks,
+            VisualizerMode::Columns,
             VisualizerMode::Wave,
             VisualizerMode::Scatter,
             VisualizerMode::Flame,
-            VisualizerMode::Pulse,
-            VisualizerMode::Retro,
-            VisualizerMode::Snow,
             VisualizerMode::Matrix,
             VisualizerMode::Binary,
         ] {

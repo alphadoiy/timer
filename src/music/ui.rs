@@ -18,7 +18,7 @@ pub fn duration_text(position: Duration, total: Option<Duration>) -> String {
     format!(
         "{} / {}",
         fmt(position),
-        total.map_or_else(|| "--:--".to_string(), fmt)
+        total.map_or_else(|| "LIVE".to_string(), fmt)
     )
 }
 
