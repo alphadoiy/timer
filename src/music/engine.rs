@@ -19,6 +19,7 @@ use symphonia::{
 
 use super::{
     MusicCommand, MusicSnapshot, PlaybackState, RepeatMode, TrackMeta, VisualizerMode,
+    SourceKind,
     provider::open_reader,
     queue::TrackQueue,
     visualizer::{AudioTap, NUM_BANDS, SpectrumAnalyzer, TapSource},
@@ -41,6 +42,9 @@ pub struct MusicEngine {
     wave_samples: Vec<f32>,
     visualizer_frame: u64,
     sample_rate_hz: f32,
+    pending_seek_delta_sec: i64,
+    pending_seek_requested_at: Option<Instant>,
+    last_seek_applied_at: Option<Instant>,
     tap: Arc<Mutex<AudioTap>>,
     analyzer: SpectrumAnalyzer,
     last_error: Option<String>,
@@ -65,6 +69,9 @@ impl MusicEngine {
             wave_samples: Vec::new(),
             visualizer_frame: 0,
             sample_rate_hz: 44_100.0,
+            pending_seek_delta_sec: 0,
+            pending_seek_requested_at: None,
+            last_seek_applied_at: None,
             tap: Arc::new(Mutex::new(AudioTap::new(8192))),
             analyzer: SpectrumAnalyzer::new(),
             last_error: None,
@@ -117,7 +124,10 @@ impl MusicEngine {
             MusicCommand::Stop => self.stop(),
             MusicCommand::Next => self.next(true),
             MusicCommand::Prev => self.prev(),
-            MusicCommand::Seek(delta) => self.seek(delta),
+            MusicCommand::Seek(delta) => {
+                self.enqueue_seek(delta);
+                Ok(())
+            }
             MusicCommand::SetVolume(volume) => {
                 self.set_volume(volume);
                 Ok(())
@@ -159,6 +169,7 @@ impl MusicEngine {
     pub fn update(&mut self) {
         self.visualizer_frame = self.visualizer_frame.wrapping_add(1);
         self.refresh_spectrum();
+        self.flush_pending_seek();
 
         let ended = self
             .sink
@@ -248,7 +259,7 @@ impl MusicEngine {
 
     fn next(&mut self, manual: bool) -> Result<()> {
         if let Some(track) = self.queue.next(manual).cloned() {
-            self.play_track(track, Duration::ZERO)
+            self.play_track(track, Duration::ZERO, None)
         } else {
             self.state = PlaybackState::Ended;
             Ok(())
@@ -257,7 +268,7 @@ impl MusicEngine {
 
     fn prev(&mut self) -> Result<()> {
         if let Some(track) = self.queue.prev().cloned() {
-            self.play_track(track, Duration::ZERO)
+            self.play_track(track, Duration::ZERO, None)
         } else {
             Ok(())
         }
@@ -267,6 +278,9 @@ impl MusicEngine {
         let Some(current) = self.queue.current().cloned() else {
             return Ok(());
         };
+        if matches!(current.source_kind, SourceKind::HttpStream) && self.current_duration.is_none() {
+            return Ok(());
+        }
 
         let current_pos = self.position();
         let shifted = if delta_sec.is_negative() {
@@ -275,17 +289,59 @@ impl MusicEngine {
             current_pos.saturating_add(Duration::from_secs(delta_sec as u64))
         };
 
-        self.play_track(current, shifted)
+        let known_duration = self.current_duration.or(current.duration);
+        self.play_track(current, shifted, known_duration)
+    }
+
+    fn enqueue_seek(&mut self, delta_sec: i64) {
+        self.pending_seek_delta_sec = self.pending_seek_delta_sec.saturating_add(delta_sec);
+        self.pending_seek_requested_at = Some(Instant::now());
+    }
+
+    fn flush_pending_seek(&mut self) {
+        const SEEK_DEBOUNCE: Duration = Duration::from_millis(120);
+        const SEEK_COOLDOWN: Duration = Duration::from_millis(180);
+
+        if self.pending_seek_delta_sec == 0 {
+            return;
+        }
+        let now = Instant::now();
+        if self
+            .pending_seek_requested_at
+            .is_some_and(|t| now.saturating_duration_since(t) < SEEK_DEBOUNCE)
+        {
+            return;
+        }
+        if self
+            .last_seek_applied_at
+            .is_some_and(|t| now.saturating_duration_since(t) < SEEK_COOLDOWN)
+        {
+            return;
+        }
+
+        let delta = std::mem::take(&mut self.pending_seek_delta_sec);
+        self.pending_seek_requested_at = None;
+        if let Err(err) = self.seek(delta) {
+            self.state = PlaybackState::Error(err.to_string());
+            self.last_error = Some(err.to_string());
+            return;
+        }
+        self.last_seek_applied_at = Some(now);
     }
 
     fn play_at_index(&mut self, idx: usize, start_at: Duration) -> Result<()> {
         let Some(track) = self.queue.select(idx).cloned() else {
             return Ok(());
         };
-        self.play_track(track, start_at)
+        self.play_track(track, start_at, None)
     }
 
-    fn play_track(&mut self, track: TrackMeta, start_at: Duration) -> Result<()> {
+    fn play_track(
+        &mut self,
+        track: TrackMeta,
+        start_at: Duration,
+        known_duration_hint: Option<Duration>,
+    ) -> Result<()> {
         self.ensure_output()?;
         self.state = PlaybackState::Buffering;
 
@@ -305,6 +361,7 @@ impl MusicEngine {
         let channels = decoder.channels();
         let total = decoder
             .total_duration()
+            .or(known_duration_hint)
             .or(track.duration)
             .or_else(|| Self::probe_duration_fallback(&track));
         let tapped = TapSource::new(decoder.convert_samples(), Arc::clone(&self.tap), channels);
@@ -317,6 +374,9 @@ impl MusicEngine {
 
         sink.set_volume(self.effective_volume());
         self.current_duration = total;
+        if let Some(duration) = total {
+            self.queue.set_current_duration(duration);
+        }
         self.started_at = Some(Instant::now() - start_at);
         self.paused_at = Some(start_at);
         self.state = PlaybackState::Playing;

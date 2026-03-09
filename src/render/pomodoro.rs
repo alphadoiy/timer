@@ -4,6 +4,7 @@ use std::{
 };
 
 use crossterm::style::Color as CtColor;
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     render::weathr::{

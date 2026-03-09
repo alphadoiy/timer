@@ -78,6 +78,14 @@ impl TrackQueue {
         self.shuffle
     }
 
+    pub fn set_current_duration(&mut self, duration: std::time::Duration) {
+        if let Some(idx) = self.current_index
+            && let Some(track) = self.tracks.get_mut(idx)
+        {
+            track.duration = Some(duration);
+        }
+    }
+
     fn next_index(&self, manual: bool) -> Option<usize> {
         if self.tracks.is_empty() {
             return None;
