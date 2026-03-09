@@ -11,11 +11,13 @@ use crate::{
         TerminalRenderer, ViewportTransform,
         animation::{
             AnimationController, airplanes::AirplaneSystem, birds::BirdSystem,
+            butterflies::ButterflySystem,
             chimney::ChimneySmoke, clouds::CloudSystem, fireflies::FireflySystem, fog::FogSystem,
-            leaves::FallingLeaves, moon::MoonSystem, raindrops::RaindropSystem, snow::SnowSystem,
+            leaves::FallingLeaves, moon::MoonSystem, raindrops::RaindropSystem,
+            snow::SnowSystem,
             stars::StarSystem, sunny::SunnyAnimation, thunderstorm::ThunderstormSystem,
         },
-        scene::{WorldScene, house::House},
+        scene::{WorldScene, house::House, ground::GroundWeather},
         types::{FogIntensity, RainIntensity, SnowIntensity},
     },
     weather_live::{LiveWeather, WeatherCondition, configured_coords, spawn_weather_worker},
@@ -170,6 +172,7 @@ struct WeatherScene {
     moon: MoonSystem,
     chimney: ChimneySmoke,
     fireflies: FireflySystem,
+    butterflies: ButterflySystem,
     leaves: FallingLeaves,
     sunny_animation: SunnyAnimation,
     animation_controller: AnimationController,
@@ -196,6 +199,7 @@ impl WeatherScene {
             moon: MoonSystem::new(width, height, Some(0.5)),
             chimney: ChimneySmoke::new(),
             fireflies: FireflySystem::new(width, height),
+            butterflies: ButterflySystem::new(width, height),
             leaves: FallingLeaves::new(width, height),
             sunny_animation: SunnyAnimation::new(),
             animation_controller: AnimationController::new(),
@@ -290,6 +294,10 @@ impl WeatherScene {
 
         if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && flags.is_day {
             self.birds.update(w, h, &mut rng);
+            if self.should_show_butterflies() {
+                let horizon = h.saturating_sub(WorldScene::GROUND_HEIGHT);
+                self.butterflies.update(w, h, horizon, &mut rng);
+            }
         }
 
         if flags.is_cloudy || self.current_weather.condition == WeatherCondition::Clear {
@@ -322,7 +330,7 @@ impl WeatherScene {
             self.fog.update(w, h, &mut rng);
         }
 
-        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing {
+        if self.should_show_leaves() {
             self.leaves.update(w, h, &mut rng);
         }
 
@@ -379,9 +387,9 @@ impl WeatherScene {
             && !flags.is_snowing
         {
             let animation_y = if h > 20 { 3 } else { 2 };
-            let _ = self.animation_controller.render_frame(
+            let _ = self.sunny_animation.render_colored(
                 &mut self.renderer,
-                &self.sunny_animation,
+                self.animation_controller.current_frame(),
                 animation_y,
             );
         }
@@ -390,13 +398,21 @@ impl WeatherScene {
 
         if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && flags.is_day {
             let _ = self.birds.render(&mut self.renderer);
+            if self.should_show_butterflies() {
+                let _ = self.butterflies.render(&mut self.renderer);
+            }
         }
 
         if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && !flags.is_foggy {
             let _ = self.airplanes.render(&mut self.renderer);
         }
 
-        let _ = self.scene.render(&mut self.renderer, flags.is_day);
+        let ground_weather = GroundWeather {
+            is_raining: flags.is_raining,
+            is_snowing: flags.is_snowing,
+            is_thunderstorm: flags.is_thunderstorm,
+        };
+        let _ = self.scene.render_with_weather(&mut self.renderer, flags.is_day, ground_weather);
 
         if !flags.is_raining && !flags.is_thunderstorm {
             let _ = self.chimney.render(&mut self.renderer);
@@ -405,14 +421,6 @@ impl WeatherScene {
         if flags.is_thunderstorm {
             let _ = self.rain.render(&mut self.renderer);
             let _ = self.thunderstorm.render(&mut self.renderer);
-            if self.thunderstorm.is_flashing() {
-                let _ = self.renderer.render_line_colored(
-                    0,
-                    h.saturating_sub(2),
-                    &".".repeat(w as usize),
-                    CtColor::White,
-                );
-            }
         } else if flags.is_raining {
             let _ = self.rain.render(&mut self.renderer);
         } else if flags.is_snowing {
@@ -423,7 +431,7 @@ impl WeatherScene {
             let _ = self.fog.render(&mut self.renderer);
         }
 
-        if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing {
+        if self.should_show_leaves() {
             let _ = self.leaves.render(&mut self.renderer);
         }
 
@@ -488,6 +496,28 @@ impl WeatherScene {
         );
         let c = self.current_weather.condition;
         is_warm && clear_night && !c.is_raining() && !c.is_thunderstorm() && !c.is_snowing()
+    }
+
+    fn should_show_butterflies(&self) -> bool {
+        if !self.current_weather.is_day {
+            return false;
+        }
+        let temp = self.current_weather.temperature_c;
+        let warm_enough = temp > 18.0;
+        let c = self.current_weather.condition;
+        warm_enough
+            && matches!(c, WeatherCondition::Clear | WeatherCondition::PartlyCloudy)
+            && !c.is_raining()
+            && !c.is_snowing()
+    }
+
+    fn should_show_leaves(&self) -> bool {
+        let c = self.current_weather.condition;
+        if c.is_raining() || c.is_thunderstorm() || c.is_snowing() {
+            return false;
+        }
+        let temp = self.current_weather.temperature_c;
+        (5.0..=22.0).contains(&temp)
     }
 }
 

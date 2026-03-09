@@ -87,10 +87,7 @@ impl TerminalRenderer {
                     if col < self.width {
                         let i = (row as usize) * (self.width as usize) + (col as usize);
                         if i < self.buffer.len() {
-                            self.buffer[i] = Cell {
-                                character: ch,
-                                color,
-                            };
+                            self.buffer[i] = Cell { character: ch, color };
                         }
                     }
                 }
@@ -114,10 +111,7 @@ impl TerminalRenderer {
             if col < self.width {
                 let i = (y as usize) * (self.width as usize) + (col as usize);
                 if i < self.buffer.len() {
-                    self.buffer[i] = Cell {
-                        character: ch,
-                        color,
-                    };
+                    self.buffer[i] = Cell { character: ch, color };
                 }
             }
         }
@@ -128,10 +122,7 @@ impl TerminalRenderer {
         if x < self.width && y < self.height {
             let i = (y as usize) * (self.width as usize) + (x as usize);
             if i < self.buffer.len() {
-                self.buffer[i] = Cell {
-                    character: ch,
-                    color,
-                };
+                self.buffer[i] = Cell { character: ch, color };
             }
         }
         Ok(())

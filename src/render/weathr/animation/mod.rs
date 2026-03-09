@@ -2,6 +2,7 @@
 
 pub mod airplanes;
 pub mod birds;
+pub mod butterflies;
 pub mod chimney;
 pub mod clouds;
 pub mod fireflies;
@@ -50,6 +51,10 @@ impl AnimationController {
         let frame = animation.get_frame(self.current_frame);
         let color = animation.get_color();
         renderer.render_centered_colored(frame, y_offset, color)
+    }
+
+    pub fn current_frame(&self) -> usize {
+        self.current_frame
     }
 
     #[allow(dead_code)]

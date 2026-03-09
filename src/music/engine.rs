@@ -167,8 +167,10 @@ impl MusicEngine {
     }
 
     pub fn update(&mut self) {
-        self.visualizer_frame = self.visualizer_frame.wrapping_add(1);
-        self.refresh_spectrum();
+        if matches!(self.state, PlaybackState::Playing) {
+            self.visualizer_frame = self.visualizer_frame.wrapping_add(1);
+            self.refresh_spectrum();
+        }
         self.flush_pending_seek();
 
         let ended = self

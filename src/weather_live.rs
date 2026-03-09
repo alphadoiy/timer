@@ -3,6 +3,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Duration;
 
+use chrono::{Local, Timelike};
 use serde::Deserialize;
 
 const IPINFO_URL: &str = "https://ipinfo.io/json";
@@ -111,12 +112,13 @@ pub struct LiveWeather {
 
 impl Default for LiveWeather {
     fn default() -> Self {
+        let hour = Local::now().hour();
         Self {
             condition: WeatherCondition::PartlyCloudy,
             temperature_c: 20.0,
             wind_kmh: 8.0,
             precipitation_mm: 0.0,
-            is_day: true,
+            is_day: (6..18).contains(&hour),
             attribution: "Awaiting weather data",
         }
     }

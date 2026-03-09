@@ -1,6 +1,5 @@
 use super::*;
 
-
 pub(super) fn truncate_to_char_count(s: &mut String, max_chars: usize) {
     if s.chars().count() <= max_chars {
         return;
@@ -13,72 +12,97 @@ pub(super) fn truncate_to_char_count(s: &mut String, max_chars: usize) {
 #[derive(Debug, Clone)]
 pub(super) struct StyledVisLine {
     text: String,
-    tags: Vec<u8>,
-}
-
-pub(super) fn styled_from_plain(lines: Vec<String>, total_rows: usize) -> Vec<StyledVisLine> {
-    lines
-        .into_iter()
-        .enumerate()
-        .map(|(row, line)| {
-            let tag = spectrum_row_tag(row, total_rows);
-            StyledVisLine {
-                tags: vec![tag; line.chars().count()],
-                text: line,
-            }
-        })
-        .collect()
-}
-
-fn spectrum_row_tag(row: usize, total: usize) -> u8 {
-    if total == 0 {
-        return 0;
-    }
-    if row < total / 3 {
-        2
-    } else if row < (total * 2) / 3 {
-        1
-    } else {
-        0
-    }
-}
-
-fn tag_color(tag: u8) -> Color {
-    match tag {
-        0 => Color::Rgb(72, 188, 141),
-        1 => Color::Rgb(92, 204, 160),
-        2 => Color::Rgb(119, 218, 180),
-        3 => Color::Rgb(154, 224, 162),
-        4 => Color::Rgb(202, 228, 132),
-        5 => Color::Rgb(240, 216, 109),
-        6 => Color::Rgb(253, 186, 89),
-        7 => Color::Rgb(255, 146, 98),
-        _ => Color::Rgb(255, 102, 112),
-    }
+    colors: Vec<Color>,
 }
 
 pub(super) fn styled_line_to_spans(line: &StyledVisLine) -> Line<'static> {
     let mut spans = Vec::new();
-    let mut run_tag: Option<u8> = None;
+    let mut run_color: Option<Color> = None;
     let mut run = String::new();
     for (idx, ch) in line.text.chars().enumerate() {
-        let tag = *line.tags.get(idx).unwrap_or(&0);
-        if run_tag.is_some() && run_tag != Some(tag) {
+        let color = line.colors.get(idx).copied().unwrap_or(Color::Reset);
+        if run_color.is_some() && run_color != Some(color) {
             spans.push(Span::styled(
                 std::mem::take(&mut run),
-                Style::default().fg(tag_color(run_tag.unwrap_or(0))),
+                Style::default().fg(run_color.unwrap_or(Color::Reset)),
             ));
         }
-        run_tag = Some(tag);
+        run_color = Some(color);
         run.push(ch);
     }
     if !run.is_empty() {
         spans.push(Span::styled(
             run,
-            Style::default().fg(tag_color(run_tag.unwrap_or(0))),
+            Style::default().fg(run_color.unwrap_or(Color::Reset)),
         ));
     }
     Line::from(spans)
+}
+
+// ---------------------------------------------------------------------------
+// Multi-stop gradient palettes
+// ---------------------------------------------------------------------------
+
+const SPECTRUM: &[(f32, u8, u8, u8)] = &[
+    (0.00, 40, 40, 130),
+    (0.14, 30, 100, 220),
+    (0.28, 0, 210, 200),
+    (0.42, 0, 230, 120),
+    (0.57, 160, 245, 60),
+    (0.71, 255, 225, 40),
+    (0.86, 255, 130, 40),
+    (1.00, 255, 50, 130),
+];
+
+const FIRE: &[(f32, u8, u8, u8)] = &[
+    (0.00, 30, 5, 0),
+    (0.22, 170, 20, 0),
+    (0.48, 255, 95, 0),
+    (0.72, 255, 200, 35),
+    (1.00, 255, 255, 200),
+];
+
+const OCEAN: &[(f32, u8, u8, u8)] = &[
+    (0.00, 12, 20, 65),
+    (0.28, 20, 85, 235),
+    (0.52, 0, 195, 225),
+    (0.76, 95, 235, 215),
+    (1.00, 205, 255, 255),
+];
+
+const MATRIX_PAL: &[(f32, u8, u8, u8)] = &[
+    (0.00, 0, 28, 0),
+    (0.28, 0, 85, 12),
+    (0.52, 0, 180, 35),
+    (0.76, 55, 255, 65),
+    (1.00, 185, 255, 185),
+];
+
+const CYBER: &[(f32, u8, u8, u8)] = &[
+    (0.00, 0, 22, 32),
+    (0.28, 0, 95, 105),
+    (0.52, 0, 195, 185),
+    (0.76, 75, 250, 215),
+    (1.00, 205, 255, 248),
+];
+
+/// Evaluate a multi-stop gradient, quantised to 25 levels for span batching.
+fn pal(stops: &[(f32, u8, u8, u8)], t: f32) -> Color {
+    let t = (t.clamp(0.0, 1.0) * 24.0).round() / 24.0;
+    for w in stops.windows(2) {
+        let (t0, r0, g0, b0) = w[0];
+        let (t1, r1, g1, b1) = w[1];
+        if t <= t1 {
+            let f = ((t - t0) / (t1 - t0).max(0.001)).clamp(0.0, 1.0);
+            return Color::Rgb(
+                (r0 as f32 + (r1 as f32 - r0 as f32) * f).round() as u8,
+                (g0 as f32 + (g1 as f32 - g0 as f32) * f).round() as u8,
+                (b0 as f32 + (b1 as f32 - b0 as f32) * f).round() as u8,
+            );
+        }
+    }
+    let &(_, r, g, b) = stops.last().unwrap_or(&(1.0, 255, 255, 255));
+    Color::Rgb(r, g, b)
 }
 
 fn vis_band_width(band: usize, total_width: usize, bands: usize) -> usize {
@@ -93,63 +117,6 @@ fn vis_band_width(band: usize, total_width: usize, bands: usize) -> usize {
     if band < extra { base + 1 } else { base }
 }
 
-pub(super) fn render_bricks(
-    bands: [f32; crate::music::NUM_BANDS],
-    width: usize,
-    height: usize,
-) -> Vec<String> {
-    let mut lines = vec![String::with_capacity(width); height];
-    for row in 0..height {
-        let row_threshold = (height.saturating_sub(1).saturating_sub(row)) as f32 / height as f32;
-        for i in 0..bands.len() {
-            let bw = vis_band_width(i, width, bands.len());
-            let ch = if bands[i] > row_threshold { '▄' } else { ' ' };
-            for _ in 0..bw {
-                lines[row].push(ch);
-            }
-            if i < bands.len() - 1 {
-                lines[row].push(' ');
-            }
-        }
-    }
-    lines
-}
-
-pub(super) fn render_columns(
-    bands: [f32; crate::music::NUM_BANDS],
-    width: usize,
-    height: usize,
-) -> Vec<String> {
-    let mut lines = vec![String::with_capacity(width); height];
-    let mut cols = Vec::new();
-    for b in 0..bands.len() {
-        let w = vis_band_width(b, width, bands.len());
-        let next = if b + 1 < bands.len() {
-            bands[b + 1]
-        } else {
-            bands[b]
-        };
-        for c in 0..w {
-            let t = c as f32 / (w.max(1) as f32);
-            cols.push((bands[b] * (1.0 - t) + next * t).clamp(0.0, 1.0));
-        }
-        if b < bands.len() - 1 {
-            cols.push(0.0);
-        }
-    }
-    for row in 0..height {
-        let row_bottom = (height.saturating_sub(1).saturating_sub(row)) as f32 / height as f32;
-        let row_top = (height.saturating_sub(row)) as f32 / height as f32;
-        for (x, level) in cols.iter().enumerate() {
-            let _ = x;
-            let ch = frac_block(*level, row_bottom, row_top);
-            lines[row].push(ch);
-        }
-        truncate_to_char_count(&mut lines[row], width);
-    }
-    lines
-}
-
 const BRAILLE_BITS: [[u32; 2]; 4] = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];
 const BAR_BLOCKS: &[char] = &[' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 const MATRIX_CHARS: &[char] = &[
@@ -158,9 +125,113 @@ const MATRIX_CHARS: &[char] = &[
     '7', '8', '9',
 ];
 
-pub(super) fn render_braille_wave(samples: &[f32], width: usize, height: usize) -> Vec<String> {
+// ---------------------------------------------------------------------------
+// Bricks: solid block bars with bottom→top spectrum gradient + peak caps
+// ---------------------------------------------------------------------------
+
+pub(super) fn render_bricks_styled(
+    bands: [f32; crate::music::NUM_BANDS],
+    width: usize,
+    height: usize,
+    frame: u64,
+) -> Vec<StyledVisLine> {
+    let mut lines = Vec::with_capacity(height);
+    for row in 0..height {
+        let row_threshold = (height.saturating_sub(1).saturating_sub(row)) as f32 / height as f32;
+        let norm_y = 1.0 - row as f32 / height.saturating_sub(1).max(1) as f32;
+        let mut text = String::with_capacity(width);
+        let mut colors = Vec::with_capacity(width);
+        for i in 0..bands.len() {
+            let bw = vis_band_width(i, width, bands.len());
+            let active = bands[i] > row_threshold;
+            let peak_row = ((1.0 - bands[i]) * height as f32).floor() as usize;
+            for c in 0..bw {
+                if active {
+                    let center_d = ((c as f32 / bw.max(1) as f32) - 0.5).abs() * 2.0;
+                    let dim = 1.0 - center_d * 0.18;
+                    let pulse = (frame as f32 * 0.12 + i as f32 * 1.4).sin() * 0.06 + 1.0;
+                    let intensity = (norm_y * 0.55 + bands[i] * 0.35 + 0.10) * dim * pulse;
+                    text.push('█');
+                    colors.push(pal(SPECTRUM, intensity.clamp(0.0, 1.0)));
+                } else if row == peak_row.min(height.saturating_sub(1)) && bands[i] > 0.05 {
+                    text.push('▔');
+                    colors.push(pal(SPECTRUM, 0.85));
+                } else {
+                    text.push(' ');
+                    colors.push(Color::Reset);
+                }
+            }
+            if i < bands.len() - 1 {
+                text.push(' ');
+                colors.push(Color::Reset);
+            }
+        }
+        truncate_to_char_count(&mut text, width);
+        colors.truncate(text.chars().count());
+        lines.push(StyledVisLine { text, colors });
+    }
+    lines
+}
+
+// ---------------------------------------------------------------------------
+// Columns: smoothly interpolated bars with fractional blocks + gradient
+// ---------------------------------------------------------------------------
+
+pub(super) fn render_columns_styled(
+    bands: [f32; crate::music::NUM_BANDS],
+    width: usize,
+    height: usize,
+    frame: u64,
+) -> Vec<StyledVisLine> {
+    let mut col_levels = Vec::new();
+    for b in 0..bands.len() {
+        let w = vis_band_width(b, width, bands.len());
+        let next = if b + 1 < bands.len() { bands[b + 1] } else { bands[b] };
+        for c in 0..w {
+            let t = c as f32 / (w.max(1) as f32);
+            col_levels.push((bands[b] * (1.0 - t) + next * t).clamp(0.0, 1.0));
+        }
+        if b < bands.len() - 1 {
+            col_levels.push(0.0);
+        }
+    }
+    let mut lines = Vec::with_capacity(height);
+    for row in 0..height {
+        let row_bottom = (height.saturating_sub(1).saturating_sub(row)) as f32 / height as f32;
+        let row_top = (height.saturating_sub(row)) as f32 / height as f32;
+        let norm_y = 1.0 - row as f32 / height.saturating_sub(1).max(1) as f32;
+        let mut text = String::with_capacity(width);
+        let mut colors = Vec::with_capacity(width);
+        for (x, level) in col_levels.iter().enumerate() {
+            let ch = frac_block(*level, row_bottom, row_top);
+            text.push(ch);
+            if ch != ' ' {
+                let wave = (frame as f32 * 0.08 + x as f32 * 0.15).sin() * 0.04;
+                let intensity = (norm_y * 0.50 + level * 0.40 + 0.10 + wave).clamp(0.0, 1.0);
+                colors.push(pal(SPECTRUM, intensity));
+            } else {
+                colors.push(Color::Reset);
+            }
+        }
+        truncate_to_char_count(&mut text, width);
+        colors.truncate(text.chars().count());
+        lines.push(StyledVisLine { text, colors });
+    }
+    lines
+}
+
+// ---------------------------------------------------------------------------
+// Wave: braille waveform with amplitude-based ocean coloring
+// ---------------------------------------------------------------------------
+
+pub(super) fn render_braille_wave_styled(
+    samples: &[f32],
+    width: usize,
+    height: usize,
+) -> Vec<StyledVisLine> {
     let dot_rows = height * 4;
     let dot_cols = width * 2;
+    let center = dot_rows as f32 / 2.0;
     let mut ypos = vec![dot_rows / 2; dot_cols];
     if !samples.is_empty() {
         for (x, y) in ypos.iter_mut().enumerate() {
@@ -170,12 +241,15 @@ pub(super) fn render_braille_wave(samples: &[f32], width: usize, height: usize) 
                 .min(dot_rows.saturating_sub(1));
         }
     }
-    let mut lines = vec![String::with_capacity(width); height];
+    let mut lines = Vec::with_capacity(height);
     for row in 0..height {
-        for ch in 0..width {
+        let mut text = String::with_capacity(width);
+        let mut colors = Vec::with_capacity(width);
+        for ch_col in 0..width {
             let mut braille = 0x2800u32;
+            let mut max_amp = 0.0f32;
             for dc in 0..2 {
-                let x = ch * 2 + dc;
+                let x = ch_col * 2 + dc;
                 if x >= dot_cols {
                     continue;
                 }
@@ -189,12 +263,24 @@ pub(super) fn render_braille_wave(samples: &[f32], width: usize, height: usize) 
                         braille |= BRAILLE_BITS[dr][dc];
                     }
                 }
+                max_amp = max_amp.max((ypos[x] as f32 - center).abs() / center.max(1.0));
             }
-            lines[row].push(char::from_u32(braille).unwrap_or(' '));
+            text.push(char::from_u32(braille).unwrap_or(' '));
+            if braille != 0x2800 {
+                let intensity = (max_amp * 0.70 + 0.30).clamp(0.0, 1.0);
+                colors.push(pal(OCEAN, intensity));
+            } else {
+                colors.push(Color::Reset);
+            }
         }
+        lines.push(StyledVisLine { text, colors });
     }
     lines
 }
+
+// ---------------------------------------------------------------------------
+// Scatter: braille particle scatter with sparkle effects + spectrum palette
+// ---------------------------------------------------------------------------
 
 pub(super) fn render_braille_scatter_styled(
     bands: [f32; crate::music::NUM_BANDS],
@@ -202,24 +288,38 @@ pub(super) fn render_braille_scatter_styled(
     height: usize,
     frame: u64,
 ) -> Vec<StyledVisLine> {
-    let dot_rows = height * 4;
+    let dot_rows = (height * 4).max(1) as f32;
     let mut lines = Vec::with_capacity(height);
     for row in 0..height {
         let mut line = String::with_capacity(width);
-        let mut tags = Vec::with_capacity(width);
-        let vertical = 1.0 - row as f32 / height.saturating_sub(1).max(1) as f32;
+        let mut colors = Vec::with_capacity(width);
         for b in 0..bands.len() {
             let band_w = vis_band_width(b, width, bands.len());
+            let energy = bands[b];
+            let energy2 = energy * energy;
+            let col_offset: usize = if b > 0 {
+                (0..b).map(|i| vis_band_width(i, width, bands.len()) + 1).sum()
+            } else {
+                0
+            };
             for c in 0..band_w {
                 let mut braille = 0x2800u32;
                 let mut lit = 0usize;
                 for dr in 0..4 {
                     for dc in 0..2 {
-                        let dot_row = row * 4 + dr;
-                        let dot_col = c * 2 + dc;
-                        let h = scatter_hash(b, dot_row, dot_col, frame);
-                        let height_factor = 0.5 + 0.5 * (dot_row as f32 / dot_rows.max(1) as f32);
-                        let threshold = bands[b] * bands[b] * height_factor;
+                        let dot_y = row * 4 + dr;
+                        let dot_x = c * 2 + dc;
+                        let norm_y = 1.0 - dot_y as f32 / dot_rows;
+                        let col_seed = (col_offset + c) as f32 * 1.37;
+                        let rise_phase = norm_y * 4.0
+                            + frame as f32 * (0.08 + energy * 0.14)
+                            + col_seed;
+                        let height_fade = 1.0 - norm_y * 0.75;
+                        let spawn = energy2 * height_fade;
+                        let drift = (rise_phase * 1.8 + b as f32 * 2.1).sin() * 0.25 * norm_y;
+                        let drift_factor = 1.0 + drift.abs();
+                        let threshold = spawn * drift_factor;
+                        let h = scatter_hash(b, dot_y, dot_x, frame);
                         if h < threshold {
                             braille |= BRAILLE_BITS[dr][dc];
                             lit += 1;
@@ -228,52 +328,58 @@ pub(super) fn render_braille_scatter_styled(
                 }
                 line.push(char::from_u32(braille).unwrap_or(' '));
 
-                // Blend local dot density + band energy + slight row gradient.
                 let density = lit as f32 / 8.0;
-                let sparkle_now = scatter_hash(b, row, c, frame / 2);
-                let sparkle_prev = scatter_hash(b, row, c, frame.saturating_sub(2) / 2);
-                let sparkle_smooth = sparkle_now * 0.62 + sparkle_prev * 0.38;
-                let sparkle_boost = if density > 0.0 && sparkle_smooth > 0.90 {
-                    (sparkle_smooth - 0.90) * 2.0
+                let norm_row_y = 1.0 - row as f32 / height.saturating_sub(1).max(1) as f32;
+                let sparkle_val = scatter_hash(b, row, c, frame / 2);
+                let sparkle_boost = if density > 0.0 && sparkle_val > 0.88 {
+                    (sparkle_val - 0.88) * 3.0
                 } else {
                     0.0
                 };
                 let wave_phase = frame as f32 * 0.045 + b as f32 * 0.55 + row as f32 * 0.11;
-                let hue_wave = (wave_phase.sin() * 0.5 + 0.5) * bands[b] * 0.08;
+                let hue_wave = (wave_phase.sin() * 0.5 + 0.5) * energy * 0.08;
                 let base_intensity =
-                    density * 0.55 + bands[b] * 0.30 + vertical * 0.10 + sparkle_boost + hue_wave;
+                    density * 0.50 + energy * 0.28 + norm_row_y * 0.12 + sparkle_boost + hue_wave;
                 let temporal_seed = scatter_hash(b, row, c, frame.saturating_sub(3) / 3);
                 let intensity = (base_intensity * 0.84 + temporal_seed * 0.16)
                     .clamp(0.0, 1.0)
                     .powf(0.80);
-                tags.push(scatter_intensity_tag(intensity));
+                colors.push(pal(SPECTRUM, intensity));
             }
             if b < bands.len() - 1 {
                 line.push(' ');
-                tags.push(0);
+                colors.push(Color::Reset);
             }
         }
         truncate_to_char_count(&mut line, width);
-        tags.truncate(line.chars().count());
-        lines.push(StyledVisLine { text: line, tags });
+        colors.truncate(line.chars().count());
+        lines.push(StyledVisLine { text: line, colors });
     }
     lines
 }
 
-pub(super) fn render_braille_flame(
+// ---------------------------------------------------------------------------
+// Flame: braille fire animation with ember→white fire palette
+// ---------------------------------------------------------------------------
+
+pub(super) fn render_braille_flame_styled(
     bands: [f32; crate::music::NUM_BANDS],
     width: usize,
     height: usize,
     frame: u64,
-) -> Vec<String> {
+) -> Vec<StyledVisLine> {
     let dot_rows = height * 4;
-    let mut lines = vec![String::with_capacity(width); height];
+    let mut lines = Vec::with_capacity(height);
     for row in 0..height {
+        let mut text = String::with_capacity(width);
+        let mut colors = Vec::with_capacity(width);
         for b in 0..bands.len() {
             let chars_per_band = vis_band_width(b, width, bands.len());
             let band_dot_cols = chars_per_band * 2;
             for c in 0..chars_per_band {
                 let mut braille = 0x2800u32;
+                let mut lit = 0usize;
+                let mut max_depth = 0.0f32;
                 for dr in 0..4 {
                     for dc in 0..2 {
                         let dot_row = row * 4 + dr;
@@ -293,20 +399,36 @@ pub(super) fn render_braille_flame(
                             let edge = dist / flame_width.max(0.001);
                             if edge < 0.7 || scatter_hash(b, dot_row, dot_col, frame) < 0.6 {
                                 braille |= BRAILLE_BITS[dr][dc];
+                                lit += 1;
+                                max_depth = max_depth.max(1.0 - edge);
                             }
                         }
                     }
                 }
-                lines[row].push(char::from_u32(braille).unwrap_or(' '));
+                text.push(char::from_u32(braille).unwrap_or(' '));
+                if lit > 0 {
+                    let norm_y = 1.0 - row as f32 / height.saturating_sub(1).max(1) as f32;
+                    let core = max_depth * 0.50 + (1.0 - norm_y) * 0.30 + bands[b] * 0.20;
+                    colors.push(pal(FIRE, core.clamp(0.0, 1.0)));
+                } else {
+                    colors.push(Color::Reset);
+                }
             }
             if b < bands.len() - 1 {
-                lines[row].push(' ');
+                text.push(' ');
+                colors.push(Color::Reset);
             }
         }
-        truncate_to_char_count(&mut lines[row], width);
+        truncate_to_char_count(&mut text, width);
+        colors.truncate(text.chars().count());
+        lines.push(StyledVisLine { text, colors });
     }
     lines
 }
+
+// ---------------------------------------------------------------------------
+// Matrix: falling katakana rain with smooth green glow trail
+// ---------------------------------------------------------------------------
 
 pub(super) fn render_matrix_styled(
     bands: [f32; crate::music::NUM_BANDS],
@@ -317,7 +439,7 @@ pub(super) fn render_matrix_styled(
     let mut lines = Vec::with_capacity(height);
     for row in 0..height {
         let mut line = String::with_capacity(width);
-        let mut tags = Vec::with_capacity(width);
+        let mut colors = Vec::with_capacity(width);
         let mut col = 0usize;
         for (b, _) in bands.iter().enumerate() {
             let w = vis_band_width(b, width, bands.len());
@@ -326,7 +448,7 @@ pub(super) fn render_matrix_styled(
                 let seed = col as u64 * 7919 + 104_729;
                 if scatter_hash(b, 0, col, frame / 20) > energy * 1.5 + 0.1 {
                     line.push(' ');
-                    tags.push(0);
+                    colors.push(Color::Reset);
                     col += 1;
                     continue;
                 }
@@ -338,33 +460,35 @@ pub(super) fn render_matrix_styled(
                 let dist = pos as i32 - row as i32;
                 if dist < 0 || dist > trail_len as i32 {
                     line.push(' ');
-                    tags.push(0);
+                    colors.push(Color::Reset);
                 } else {
                     let char_seed = seed ^ (row as u64 * 31 + (frame / 4) * 17);
                     line.push(MATRIX_CHARS[char_seed as usize % MATRIX_CHARS.len()]);
-                    let tag = if dist == 0 {
-                        2
-                    } else if dist <= 2 {
-                        1
+                    let intensity = if dist == 0 {
+                        1.0
                     } else {
-                        0
+                        (1.0 - dist as f32 / trail_len.max(1) as f32).max(0.08)
                     };
-                    tags.push(tag);
+                    colors.push(pal(MATRIX_PAL, intensity));
                 }
                 col += 1;
             }
             if b < bands.len() - 1 {
                 line.push(' ');
-                tags.push(0);
+                colors.push(Color::Reset);
                 col += 1;
             }
         }
         truncate_to_char_count(&mut line, width);
-        tags.truncate(line.chars().count());
-        lines.push(StyledVisLine { text: line, tags });
+        colors.truncate(line.chars().count());
+        lines.push(StyledVisLine { text: line, colors });
     }
     lines
 }
+
+// ---------------------------------------------------------------------------
+// Binary: scrolling 0/1 stream with cyber teal palette
+// ---------------------------------------------------------------------------
 
 pub(super) fn render_binary_styled(
     bands: [f32; crate::music::NUM_BANDS],
@@ -375,7 +499,7 @@ pub(super) fn render_binary_styled(
     let mut lines = Vec::with_capacity(height);
     for row in 0..height {
         let mut line = String::with_capacity(width);
-        let mut tags = Vec::with_capacity(width);
+        let mut colors = Vec::with_capacity(width);
         let mut col = 0usize;
         for (b, _) in bands.iter().enumerate() {
             let w = vis_band_width(b, width, bands.len());
@@ -387,28 +511,32 @@ pub(super) fn render_binary_styled(
                 let one_prob = energy * 0.6 + 0.15;
                 let bit_one = h < one_prob;
                 line.push(if bit_one { '1' } else { '0' });
-                let tag = if bit_one && energy > 0.4 {
-                    2
+                let intensity = if bit_one && energy > 0.4 {
+                    0.85 + energy * 0.15
                 } else if bit_one || energy > 0.3 {
-                    1
+                    0.35 + energy * 0.25
                 } else {
-                    0
+                    0.08 + energy * 0.12
                 };
-                tags.push(tag);
+                colors.push(pal(CYBER, intensity.clamp(0.0, 1.0)));
                 col += 1;
             }
             if b < bands.len() - 1 {
                 line.push(' ');
-                tags.push(0);
+                colors.push(Color::Reset);
                 col += 1;
             }
         }
         truncate_to_char_count(&mut line, width);
-        tags.truncate(line.chars().count());
-        lines.push(StyledVisLine { text: line, tags });
+        colors.truncate(line.chars().count());
+        lines.push(StyledVisLine { text: line, colors });
     }
     lines
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 fn frac_block(level: f32, row_bottom: f32, row_top: f32) -> char {
     if level >= row_top {
@@ -420,28 +548,6 @@ fn frac_block(level: f32, row_bottom: f32, row_top: f32) -> char {
         return BAR_BLOCKS[idx.min(BAR_BLOCKS.len().saturating_sub(1))];
     }
     ' '
-}
-
-fn scatter_intensity_tag(intensity: f32) -> u8 {
-    if intensity < 0.10 {
-        0
-    } else if intensity < 0.19 {
-        1
-    } else if intensity < 0.29 {
-        2
-    } else if intensity < 0.40 {
-        3
-    } else if intensity < 0.53 {
-        4
-    } else if intensity < 0.66 {
-        5
-    } else if intensity < 0.77 {
-        6
-    } else if intensity < 0.88 {
-        7
-    } else {
-        8
-    }
 }
 
 fn scatter_hash(band: usize, row: usize, col: usize, frame: u64) -> f32 {

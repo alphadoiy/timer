@@ -4,6 +4,8 @@ use crossterm::style::Color;
 use rand::prelude::*;
 use std::io;
 
+const MAX_SNOW_DEPTH: u8 = 4;
+
 struct Snowflake {
     x: f32,
     y: f32,
@@ -20,6 +22,7 @@ pub struct SnowSystem {
     terminal_height: u16,
     intensity: SnowIntensity,
     wind_x: f32,
+    ground_snow: Vec<u8>,
 }
 
 impl SnowSystem {
@@ -36,6 +39,7 @@ impl SnowSystem {
             terminal_height,
             intensity,
             wind_x: 0.0,
+            ground_snow: vec![0; terminal_width as usize],
         };
         // Initialize with some default wind
         let wind_dir = if rand::random::<bool>() { 0.2 } else { -0.2 };
@@ -100,6 +104,10 @@ impl SnowSystem {
         self.terminal_width = terminal_width;
         self.terminal_height = terminal_height;
 
+        if self.ground_snow.len() != terminal_width as usize {
+            self.ground_snow.resize(terminal_width as usize, 0);
+        }
+
         let target_count = match self.intensity {
             SnowIntensity::Light => (terminal_width / 4) as usize,
             SnowIntensity::Medium => (terminal_width / 2) as usize,
@@ -117,20 +125,26 @@ impl SnowSystem {
             }
         }
 
+        let ground_snow = &mut self.ground_snow;
+        let tw = terminal_width;
         self.flakes.retain_mut(|flake| {
             flake.y += flake.speed_y;
 
-            // Add horizontal sway
             let sway = (flake.y * 0.2 + flake.sway_offset).sin() * 0.05;
             flake.x += flake.speed_x + sway;
 
-            // Hit ground or out of bounds
-            if flake.y >= (terminal_height - 1) as f32 {
+            let col = flake.x as usize;
+            let snow_at = ground_snow.get(col).copied().unwrap_or(0);
+            let land_y = (terminal_height.saturating_sub(1 + snow_at as u16)) as f32;
+
+            if flake.y >= land_y {
+                if col < ground_snow.len() && ground_snow[col] < MAX_SNOW_DEPTH {
+                    ground_snow[col] = ground_snow[col].saturating_add(1);
+                }
                 return false;
             }
 
-            // Out of horizontal bounds (allow some buffer)
-            if flake.x < -20.0 || flake.x > (terminal_width as f32 + 20.0) {
+            if flake.x < -20.0 || flake.x > (tw as f32 + 20.0) {
                 return false;
             }
 
@@ -146,6 +160,27 @@ impl SnowSystem {
             if x >= 0 && x < self.terminal_width as i16 && y >= 0 && y < self.terminal_height as i16
             {
                 renderer.render_char(x as u16, y as u16, flake.character, flake.color)?;
+            }
+        }
+
+        self.render_ground_snow(renderer)?;
+        Ok(())
+    }
+
+    fn render_ground_snow(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
+        for (col, &depth) in self.ground_snow.iter().enumerate() {
+            if depth == 0 {
+                continue;
+            }
+            let x = col as u16;
+            for d in 0..depth {
+                let y = self.terminal_height.saturating_sub(1 + d as u16);
+                let (ch, color) = match d {
+                    0 => ('▓', Color::White),
+                    1 => ('▒', Color::White),
+                    _ => ('░', Color::Grey),
+                };
+                renderer.render_char(x, y, ch, color)?;
             }
         }
         Ok(())

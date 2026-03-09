@@ -2,8 +2,13 @@ use crate::render::weathr::TerminalRenderer;
 use crossterm::style::Color;
 use std::io;
 
+const BODY_FG: Color = Color::Rgb { r: 230, g: 215, b: 140 };
+const BODY_FG_DIM: Color = Color::Rgb { r: 200, g: 185, b: 115 };
+const CRATER_FG: Color = Color::Rgb { r: 170, g: 155, b: 95 };
+const EDGE_FG: Color = Color::Rgb { r: 240, g: 230, b: 170 };
+
 pub struct MoonSystem {
-    phase: f64, // 0.0 = New, 0.25 = First Quarter, 0.5 = Full, 0.75 = Last Quarter
+    phase: f64,
     x: u16,
     y: u16,
 }
@@ -31,7 +36,6 @@ impl MoonSystem {
 
         let art = match step {
             0 => vec![
-                // NEW MOON (Invisible)
                 "                 ",
                 "                 ",
                 "                 ",
@@ -40,61 +44,54 @@ impl MoonSystem {
                 "                 ",
             ],
             1 => vec![
-                // WAXING CRESCENT (Thin, mostly edge)
                 "             .    ",
                 "            . `.  ",
-                "               :  ",
-                "               :  ",
+                "              B:  ",
+                "              B:  ",
                 "            . .'  ",
                 "             `    ",
             ],
             2 => vec![
-                // FIRST QUARTER (Right Half - Solid)
                 "            _     ",
-                "           |~ `.  ",
-                "           |~~~~: ",
-                "           |~~~~: ",
-                "           |~ .'  ",
+                "           |B `.  ",
+                "           |BBB: ",
+                "           |BBB: ",
+                "           |B .'  ",
                 "           |-'    ",
             ],
             3 => vec![
-                // WAXING GIBBOUS (Mostly full, textured)
                 "         ..._     ",
-                "       .'~~~~`.   ",
-                "      |~~~~o~~~:  ",
-                "      |~.~~~~o~:  ",
-                "       `.~~~~~'   ",
+                "       .'BBBB`.   ",
+                "      |BBBBoBBB:  ",
+                "      |B.BBBBoB:  ",
+                "       `.BBBBB'   ",
                 "         `...-'   ",
             ],
             4 => vec![
-                // FULL MOON (Full Circle, textured with craters)
                 "       _..._      ",
-                "     .'~o~~~`.    ",
-                "    :~~~~~o~~~:   ",
-                "    :~~o~~~~.~:   ",
-                "    `.~~~~~o~.'   ",
+                "     .'BoBBBB`.    ",
+                "    :BBBBBoBBBB:   ",
+                "    :BBoBBBBB.B:   ",
+                "    `.BBBBBoBB.'   ",
                 "      `-...-'     ",
             ],
             5 => vec![
-                // WANING GIBBOUS
                 "       _...       ",
-                "     .'~~~~`.     ",
-                "    :~~~o~~~~|    ",
-                "    :~o~~~~.~|    ",
-                "    `.~~~~~.'     ",
+                "     .'BBBB`.     ",
+                "    :BBBoBBBB|    ",
+                "    :BoBBBB.B|    ",
+                "    `.BBBBB.'     ",
                 "      `-...-'     ",
             ],
             6 => vec![
-                // LAST QUARTER
                 "        _         ",
-                "      .' ~|       ",
-                "     :~~~~|       ",
-                "     :~~~~|       ",
-                "      `.~ |       ",
+                "      .' B|       ",
+                "     :BBBB|       ",
+                "     :BBBB|       ",
+                "      `.B |       ",
                 "        `-|       ",
             ],
             7 => vec![
-                // WANING CRESCENT
                 "        .         ",
                 "      .' .        ",
                 "     :            ",
@@ -109,20 +106,29 @@ impl MoonSystem {
             let y = self.y + i as u16;
             for (j, ch) in line.chars().enumerate() {
                 if ch == ' ' {
-                    continue; // Transparent (Sky)
+                    continue;
                 }
 
                 let x = self.x + j as u16;
 
-                if ch == '~' {
-                    // Opaque Moon Body (hides stars) - Render as space but overwrite what's there
-                    renderer.render_char(x, y, ' ', Color::White)?;
+                if ch == 'B' {
+                    renderer.render_char(x, y, '▓', BODY_FG)?;
+                } else if ch == 'o' {
+                    renderer.render_char(x, y, '○', CRATER_FG)?;
+                } else if ch == '.' && self.is_interior_dot(line, j) {
+                    renderer.render_char(x, y, '░', BODY_FG_DIM)?;
                 } else {
-                    // Texture/Outline
-                    renderer.render_char(x, y, ch, Color::White)?;
+                    renderer.render_char(x, y, ch, EDGE_FG)?;
                 }
             }
         }
         Ok(())
+    }
+
+    fn is_interior_dot(&self, line: &str, pos: usize) -> bool {
+        let chars: Vec<char> = line.chars().collect();
+        let has_body_left = chars[..pos].iter().any(|&c| c == 'B' || c == 'o');
+        let has_body_right = chars[pos + 1..].iter().any(|&c| c == 'B' || c == 'o');
+        has_body_left && has_body_right
     }
 }

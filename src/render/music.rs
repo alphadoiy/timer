@@ -9,7 +9,7 @@ impl DashboardView<'_> {
                 Constraint::Length(2),
                 Constraint::Length(1),
                 Constraint::Length(6),
-                Constraint::Length(1),
+                Constraint::Length(2),
                 Constraint::Length(2),
                 Constraint::Length(1),
                 Constraint::Min(6),
@@ -97,29 +97,19 @@ impl DashboardView<'_> {
             return;
         }
         let bands = self.music.spectrum_bands;
+        let frame = self.music.visualizer_frame;
         let styled = match self.music.visualizer_mode {
-            crate::music::VisualizerMode::Bricks => {
-                styled_from_plain(render_bricks(bands, w, h), h)
-            }
-            crate::music::VisualizerMode::Columns => {
-                styled_from_plain(render_columns(bands, w, h), h)
-            }
+            crate::music::VisualizerMode::Bricks => render_bricks_styled(bands, w, h, frame),
+            crate::music::VisualizerMode::Columns => render_columns_styled(bands, w, h, frame),
             crate::music::VisualizerMode::Wave => {
-                styled_from_plain(render_braille_wave(&self.music.wave_samples, w, h), h)
+                render_braille_wave_styled(&self.music.wave_samples, w, h)
             }
             crate::music::VisualizerMode::Scatter => {
-                render_braille_scatter_styled(bands, w, h, self.music.visualizer_frame)
+                render_braille_scatter_styled(bands, w, h, frame)
             }
-            crate::music::VisualizerMode::Flame => styled_from_plain(
-                render_braille_flame(bands, w, h, self.music.visualizer_frame),
-                h,
-            ),
-            crate::music::VisualizerMode::Matrix => {
-                render_matrix_styled(bands, w, h, self.music.visualizer_frame)
-            }
-            crate::music::VisualizerMode::Binary => {
-                render_binary_styled(bands, w, h, self.music.visualizer_frame)
-            }
+            crate::music::VisualizerMode::Flame => render_braille_flame_styled(bands, w, h, frame),
+            crate::music::VisualizerMode::Matrix => render_matrix_styled(bands, w, h, frame),
+            crate::music::VisualizerMode::Binary => render_binary_styled(bands, w, h, frame),
         };
 
         for (idx, line) in styled.iter().enumerate() {
@@ -137,7 +127,8 @@ impl DashboardView<'_> {
 
     fn render_cliamp_seek(&self, area: Rect, buf: &mut Buffer) {
         let width = area.width as usize;
-        if width == 0 {
+        let height = area.height as usize;
+        if width == 0 || height == 0 {
             return;
         }
 
@@ -146,12 +137,14 @@ impl DashboardView<'_> {
             .duration
             .filter(|d| !d.is_zero())
             .map(|total| (self.music.position.as_secs_f32() / total.as_secs_f32()).clamp(0.0, 1.0));
-        let line = build_visual_progress_line(
-            width,
+        render_seek_wave(
+            area,
+            buf,
             progress,
             self.music.position.as_secs_f32(),
+            &self.music.spectrum_bands,
+            self.music.visualizer_frame,
         );
-        Paragraph::new(line).render(area, buf);
     }
 
     fn render_cliamp_controls(&self, area: Rect, buf: &mut Buffer) {
@@ -240,7 +233,7 @@ impl DashboardView<'_> {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(2),
-                Constraint::Length(1),
+                Constraint::Length(2),
                 Constraint::Min(5),
                 Constraint::Length(1),
             ])
