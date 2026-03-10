@@ -1,6 +1,14 @@
 use crate::render::weathr::BrailleWeatherCanvas;
 use ratatui::style::Color;
 
+/// Centre-x and canopy-top-y of a deciduous tree (the only type that sheds leaves).
+#[derive(Clone, Copy)]
+pub struct TreeSpawnZone {
+    pub x: f32,
+    pub canopy_top_y: f32,
+    pub canopy_rx: f32,
+}
+
 #[derive(Default)]
 pub struct Decorations;
 
@@ -17,21 +25,25 @@ impl Decorations {
         Self
     }
 
+    /// Returns the spawn zones of the deciduous trees drawn this frame.
     pub fn render_braille(
         &self,
         canvas: &mut BrailleWeatherCanvas,
         config: &DecorationRenderConfig,
         dark_bg: bool,
-    ) {
-        let tree_x = config.house_x.saturating_sub(12) as f32;
+    ) -> Vec<TreeSpawnZone> {
+        let mut zones = Vec::new();
+
+        let tree_x = config.house_x.saturating_sub(16) as f32;
         if tree_x > 2.0 {
-            self.render_deciduous_tree(
+            let zone = self.render_deciduous_tree(
                 canvas,
                 tree_x,
                 config.horizon_y as f32,
                 config.is_day,
                 dark_bg,
             );
+            zones.push(zone);
         }
 
         let fence_x = (config.house_x + config.house_width + 2) as f32;
@@ -52,7 +64,7 @@ impl Decorations {
 
         if config.width > 60 {
             let pine_x = (config.house_x + config.house_width + 14) as f32;
-            if (pine_x as u16 + 6) < config.width {
+            if (pine_x as u16 + 8) < config.width {
                 self.render_pine_tree(
                     canvas,
                     pine_x,
@@ -62,8 +74,11 @@ impl Decorations {
                 );
             }
         }
+
+        zones
     }
 
+    /// Draws a deciduous tree and returns its canopy spawn zone for leaves.
     fn render_deciduous_tree(
         &self,
         canvas: &mut BrailleWeatherCanvas,
@@ -71,7 +86,7 @@ impl Decorations {
         horizon: f32,
         is_day: bool,
         dark_bg: bool,
-    ) {
+    ) -> TreeSpawnZone {
         let trunk_color = if dark_bg {
             Color::Rgb(100, 70, 40)
         } else {
@@ -84,11 +99,37 @@ impl Decorations {
         } else {
             Color::Rgb(0, 35, 5)
         };
+        let canopy_highlight = if is_day {
+            if dark_bg { Color::Rgb(20, 170, 50) } else { Color::Rgb(10, 100, 25) }
+        } else if dark_bg {
+            Color::Rgb(10, 80, 20)
+        } else {
+            Color::Rgb(5, 50, 10)
+        };
 
-        canvas.fill_rect(x + 1.5, horizon - 3.0, 1.0, 3.0, trunk_color);
-        canvas.fill_circle(x + 2.0, horizon - 5.0, 2.5, canopy_color);
-        canvas.fill_circle(x + 1.0, horizon - 4.5, 1.8, canopy_color);
-        canvas.fill_circle(x + 3.0, horizon - 4.5, 1.8, canopy_color);
+        let centre = x + 3.0;
+
+        // Trunk: taller, with a slight fork at the top
+        canvas.fill_rect(centre - 0.5, horizon - 6.0, 1.0, 6.0, trunk_color);
+        // Small branches
+        canvas.draw_line(centre, horizon - 5.5, centre - 1.5, horizon - 7.0, trunk_color);
+        canvas.draw_line(centre, horizon - 5.0, centre + 1.5, horizon - 6.5, trunk_color);
+
+        // Main canopy: layered ellipses for a large, rounded crown
+        // Use fill_ellipse to get aspect-correct shapes
+        canvas.fill_ellipse(centre, horizon - 9.0, 4.0, 2.0, canopy_color);
+        canvas.fill_ellipse(centre - 1.5, horizon - 8.0, 3.0, 1.5, canopy_color);
+        canvas.fill_ellipse(centre + 1.5, horizon - 8.0, 3.0, 1.5, canopy_color);
+        canvas.fill_ellipse(centre, horizon - 7.5, 4.5, 1.8, canopy_color);
+
+        // Highlight on upper-left for sun-lit effect
+        canvas.fill_ellipse(centre - 1.0, horizon - 9.5, 2.0, 0.8, canopy_highlight);
+
+        TreeSpawnZone {
+            x: centre,
+            canopy_top_y: horizon - 10.0,
+            canopy_rx: 4.5,
+        }
     }
 
     fn render_pine_tree(
@@ -111,10 +152,41 @@ impl Decorations {
         } else {
             Color::Rgb(0, 30, 5)
         };
+        let leaf_highlight = if is_day {
+            if dark_bg { Color::Rgb(0, 150, 30) } else { Color::Rgb(0, 90, 15) }
+        } else if dark_bg {
+            Color::Rgb(0, 65, 15)
+        } else {
+            Color::Rgb(0, 40, 8)
+        };
 
-        canvas.fill_rect(x + 2.0, horizon - 2.0, 1.0, 2.0, trunk_color);
-        canvas.fill_triangle(x + 2.5, horizon - 8.0, x, horizon - 2.0, x + 5.0, horizon - 2.0, leaf_color);
-        canvas.fill_triangle(x + 2.5, horizon - 6.5, x + 0.5, horizon - 3.0, x + 4.5, horizon - 3.0, leaf_color);
+        let centre = x + 3.0;
+
+        // Trunk
+        canvas.fill_rect(centre - 0.5, horizon - 3.0, 1.0, 3.0, trunk_color);
+
+        // Three stacked triangle tiers (bottom widest, top narrowest)
+        // Bottom tier
+        canvas.fill_triangle(
+            centre, horizon - 7.0,
+            x - 1.0, horizon - 3.0,
+            x + 7.0, horizon - 3.0,
+            leaf_color,
+        );
+        // Middle tier
+        canvas.fill_triangle(
+            centre, horizon - 10.0,
+            x, horizon - 5.5,
+            x + 6.0, horizon - 5.5,
+            leaf_color,
+        );
+        // Top tier
+        canvas.fill_triangle(
+            centre, horizon - 13.0,
+            x + 0.5, horizon - 8.5,
+            x + 5.5, horizon - 8.5,
+            leaf_highlight,
+        );
     }
 
     fn render_fence(

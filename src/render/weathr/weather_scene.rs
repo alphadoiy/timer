@@ -220,7 +220,8 @@ impl WeatherScene {
         }
 
         if self.should_show_leaves() {
-            self.leaves.update(w, h, &mut rng);
+            let zones = &self.scene.tree_zones;
+            self.leaves.update(w, h, zones, &mut rng);
         }
 
         if !flags.is_raining && !flags.is_thunderstorm {
