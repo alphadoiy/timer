@@ -3,7 +3,6 @@ pub mod ground;
 pub mod house;
 
 use crate::render::weathr::BrailleWeatherCanvas;
-pub use decorations::TreeSpawnZone;
 use ground::GroundWeather;
 
 pub struct WorldScene {
@@ -12,8 +11,6 @@ pub struct WorldScene {
     decorations: decorations::Decorations,
     width: u16,
     height: u16,
-    /// Positions of deciduous trees; updated each render for the leaf system.
-    pub tree_zones: Vec<TreeSpawnZone>,
 }
 
 impl WorldScene {
@@ -26,7 +23,6 @@ impl WorldScene {
             decorations: decorations::Decorations::new(),
             width,
             height,
-            tree_zones: Vec::new(),
         }
     }
 
@@ -36,7 +32,7 @@ impl WorldScene {
     }
 
     pub fn render_braille(
-        &mut self,
+        &self,
         canvas: &mut BrailleWeatherCanvas,
         is_day: bool,
         weather: GroundWeather,
@@ -61,7 +57,7 @@ impl WorldScene {
 
         self.house.render_braille(canvas, house_x, house_y, is_day, dark_bg);
 
-        self.tree_zones = self.decorations.render_braille(
+        self.decorations.render_braille(
             canvas,
             &decorations::DecorationRenderConfig {
                 horizon_y,

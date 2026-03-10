@@ -9,7 +9,7 @@ use crate::{
             AnimationController, airplanes::AirplaneSystem, birds::BirdSystem,
             butterflies::ButterflySystem,
             chimney::ChimneySmoke, clouds::CloudSystem, fireflies::FireflySystem, fog::FogSystem,
-            leaves::FallingLeaves, moon::MoonSystem, raindrops::RaindropSystem,
+            moon::MoonSystem, raindrops::RaindropSystem,
             snow::SnowSystem,
             stars::StarSystem, sunny::SunnyAnimation, thunderstorm::ThunderstormSystem,
         },
@@ -62,7 +62,6 @@ pub(crate) struct WeatherScene {
     chimney: ChimneySmoke,
     fireflies: FireflySystem,
     butterflies: ButterflySystem,
-    leaves: FallingLeaves,
     sunny_animation: SunnyAnimation,
     animation_controller: AnimationController,
     last_sunny_frame_time: Instant,
@@ -92,7 +91,6 @@ impl WeatherScene {
             chimney: ChimneySmoke::new(),
             fireflies: FireflySystem::new(width, height),
             butterflies: ButterflySystem::new(width, height),
-            leaves: FallingLeaves::new(width, height),
             sunny_animation: SunnyAnimation::new(),
             animation_controller: AnimationController::new(),
             last_sunny_frame_time: Instant::now(),
@@ -219,11 +217,6 @@ impl WeatherScene {
             self.fog.update(w, h, &mut rng);
         }
 
-        if self.should_show_leaves() {
-            let zones = &self.scene.tree_zones;
-            self.leaves.update(w, h, zones, &mut rng);
-        }
-
         if !flags.is_raining && !flags.is_thunderstorm {
             let horizon = h.saturating_sub(WorldScene::GROUND_HEIGHT);
             let house_x = (w / 2).saturating_sub(House::WIDTH / 2);
@@ -304,10 +297,6 @@ impl WeatherScene {
 
         if flags.is_foggy {
             self.fog.render_braille(&mut self.canvas, dark_bg);
-        }
-
-        if self.should_show_leaves() {
-            self.leaves.render_braille(&mut self.canvas, dark_bg);
         }
 
         self.render_hud(w, h, finish_sprint, dark_bg);
@@ -391,13 +380,6 @@ impl WeatherScene {
             && !c.is_snowing()
     }
 
-    fn should_show_leaves(&self) -> bool {
-        let c = self.current_weather.condition;
-        if c.is_raining() || c.is_thunderstorm() || c.is_snowing() {
-            return false;
-        }
-        (5.0..=22.0).contains(&self.current_weather.temperature_c)
-    }
 }
 
 fn format_precip_mm(value: f32) -> String {
