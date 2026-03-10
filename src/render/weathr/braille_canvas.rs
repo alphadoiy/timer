@@ -140,6 +140,38 @@ impl BrailleWeatherCanvas {
         }
     }
 
+    /// Fill an ellipse where `rx` and `ry` are radii in cell coordinates.
+    ///
+    /// Use this instead of `fill_circle` when you need a specific visual aspect
+    /// ratio. Because terminal cells are roughly 2:1 (tall:wide), to get a
+    /// visually round circle use `ry = rx / 2`.  For a 2:1 wide flat shape
+    /// use `ry = rx / 4`.
+    pub fn fill_ellipse(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, color: Color) {
+        if ry == 0.0 {
+            self.draw_line(cx - rx, cy, cx + rx, cy, color);
+            return;
+        }
+        let scx = cx * 2.0;
+        let scy = cy * 4.0;
+        let srx = rx * 2.0;
+        let sry = ry * 4.0;
+        let y_min = (scy - sry).floor() as i32;
+        let y_max = (scy + sry).ceil() as i32;
+        for sy in y_min..=y_max {
+            let dy = sy as f32 - scy;
+            let frac = dy / sry;
+            if frac.abs() > 1.0 {
+                continue;
+            }
+            let half_w = srx * (1.0 - frac * frac).sqrt();
+            let x_min = (scx - half_w).round() as i32;
+            let x_max = (scx + half_w).round() as i32;
+            for sx in x_min..=x_max {
+                self.plot(sx, sy, color);
+            }
+        }
+    }
+
     pub fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
         let sx = (x * 2.0).round() as i32;
         let sy = (y * 4.0).round() as i32;

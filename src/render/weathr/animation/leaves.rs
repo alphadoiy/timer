@@ -31,15 +31,10 @@ struct Leaf {
 }
 
 impl Leaf {
-    fn new(tw: u16, th: u16, spawn_at_top: bool, rng: &mut impl Rng) -> Self {
+    fn new(tw: u16, rng: &mut impl Rng) -> Self {
         let x = rng.random::<f32>() * tw as f32;
-        let y = if spawn_at_top {
-            // Start just above the visible area
-            -(rng.random::<f32>() * 3.0)
-        } else {
-            // Scatter throughout the visible height so the scene looks pre-populated
-            rng.random::<f32>() * th as f32
-        };
+        // Always spawn just above the top so they drift in naturally.
+        let y = -(rng.random::<f32>() * 4.0);
         Self {
             x,
             y,
@@ -75,19 +70,13 @@ pub struct FallingLeaves {
 
 impl FallingLeaves {
     pub fn new(tw: u16, th: u16) -> Self {
-        let mut rng = rand::rng();
-        // Pre-scatter a handful of leaves that are already mid-fall.
-        let initial = (tw / 15).max(3) as usize;
+        // Start empty — leaves drift in one at a time from the top.
+        // This avoids the "shower of coloured blocks" on startup.
         let cap = (tw / 8).max(10) as usize;
-        let mut leaves = Vec::with_capacity(cap);
-        for _ in 0..initial {
-            // spawn_at_top = false → y spread across [0, th], not [0, tw]
-            leaves.push(Leaf::new(tw, th, false, &mut rng));
-        }
         Self {
-            leaves,
+            leaves: Vec::with_capacity(cap),
             spawn_counter: 0,
-            spawn_rate: 18,
+            spawn_rate: 22,
             terminal_width: tw,
             terminal_height: th,
         }
@@ -103,8 +92,8 @@ impl FallingLeaves {
         self.spawn_counter += 1;
         if self.spawn_counter >= self.spawn_rate {
             self.spawn_counter = 0;
-            if rng.random::<f32>() < 0.65 {
-                self.leaves.push(Leaf::new(tw, th, true, rng));
+            if rng.random::<f32>() < 0.6 {
+                self.leaves.push(Leaf::new(tw, rng));
             }
         }
         let max = (tw / 8).max(10) as usize;
