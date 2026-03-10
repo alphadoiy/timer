@@ -1,6 +1,5 @@
-use crate::render::weathr::TerminalRenderer;
-use crossterm::style::Color;
-use std::io;
+use crate::render::weathr::BrailleWeatherCanvas;
+use ratatui::style::Color;
 
 #[derive(Default)]
 pub struct Ground;
@@ -13,139 +12,185 @@ pub struct GroundWeather {
 }
 
 impl Ground {
-    pub fn render_with_weather(
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_braille(
         &self,
-        renderer: &mut TerminalRenderer,
+        canvas: &mut BrailleWeatherCanvas,
         width: u16,
         height: u16,
         y_start: u16,
         is_day: bool,
         weather: GroundWeather,
-    ) -> io::Result<()> {
-        let width = width as usize;
-        let height = height as usize;
-
-        let (grass_colors, flower_colors, soil_color) = if weather.is_snowing {
-            snow_palette(is_day)
+        dark_bg: bool,
+    ) {
+        let (grass_color, grass_alt, flower_colors, soil_color) = if weather.is_snowing {
+            snow_palette(is_day, dark_bg)
         } else if weather.is_raining || weather.is_thunderstorm {
-            wet_palette(is_day)
+            wet_palette(is_day, dark_bg)
         } else {
-            dry_palette(is_day)
+            dry_palette(is_day, dark_bg)
         };
 
-        for y in 0..height {
-            for x in 0..width {
-                let (ch, color) = if y == 0 {
-                    grass_cell(x, y, &grass_colors, &flower_colors, &weather)
-                } else {
-                    soil_cell(x, y, soil_color, &weather)
-                };
-                renderer.render_char(x as u16, y_start + y as u16, ch, color)?;
+        let w = width as f32;
+        canvas.scatter_rect(
+            0.0,
+            y_start as f32,
+            w,
+            1.0,
+            0.6,
+            grass_color,
+            42,
+        );
+        canvas.scatter_rect(
+            0.0,
+            y_start as f32,
+            w,
+            1.0,
+            0.2,
+            grass_alt,
+            99,
+        );
+
+        if !flower_colors.is_empty() {
+            for (i, &fc) in flower_colors.iter().enumerate() {
+                canvas.scatter_rect(
+                    0.0,
+                    y_start as f32,
+                    w,
+                    1.0,
+                    0.03,
+                    fc,
+                    200 + i as u32,
+                );
             }
         }
-        Ok(())
-    }
-}
 
-fn pseudo_rand(x: usize, y: usize) -> u32 {
-    ((x as u32 ^ 0x5DEECE6).wrapping_mul(y as u32 ^ 0xB)) % 100
-}
-
-fn dry_palette(is_day: bool) -> ([Color; 2], Vec<Color>, Color) {
-    let grass = if is_day {
-        [Color::Green, Color::DarkGreen]
-    } else {
-        [Color::DarkGreen, Color::Rgb { r: 0, g: 50, b: 0 }]
-    };
-    let flowers = if is_day {
-        vec![Color::Magenta, Color::Red, Color::Cyan, Color::Yellow]
-    } else {
-        vec![Color::DarkMagenta, Color::DarkRed, Color::Blue, Color::DarkYellow]
-    };
-    let soil = if is_day {
-        Color::Rgb { r: 101, g: 67, b: 33 }
-    } else {
-        Color::Rgb { r: 60, g: 40, b: 20 }
-    };
-    (grass, flowers, soil)
-}
-
-fn wet_palette(is_day: bool) -> ([Color; 2], Vec<Color>, Color) {
-    let grass = if is_day {
-        [Color::Rgb { r: 0, g: 100, b: 20 }, Color::Rgb { r: 0, g: 80, b: 15 }]
-    } else {
-        [Color::Rgb { r: 0, g: 55, b: 10 }, Color::Rgb { r: 0, g: 35, b: 5 }]
-    };
-    let flowers = if is_day {
-        vec![Color::DarkMagenta, Color::DarkRed, Color::DarkCyan, Color::DarkYellow]
-    } else {
-        vec![Color::DarkMagenta, Color::DarkRed, Color::DarkBlue, Color::DarkYellow]
-    };
-    let soil = if is_day {
-        Color::Rgb { r: 65, g: 42, b: 22 }
-    } else {
-        Color::Rgb { r: 38, g: 25, b: 12 }
-    };
-    (grass, flowers, soil)
-}
-
-fn snow_palette(is_day: bool) -> ([Color; 2], Vec<Color>, Color) {
-    let grass = if is_day {
-        [Color::White, Color::Grey]
-    } else {
-        [Color::Grey, Color::DarkGrey]
-    };
-    let flowers: Vec<Color> = vec![];
-    let soil = if is_day {
-        Color::Rgb { r: 200, g: 200, b: 210 }
-    } else {
-        Color::Rgb { r: 100, g: 100, b: 110 }
-    };
-    (grass, flowers, soil)
-}
-
-fn grass_cell(
-    x: usize,
-    y: usize,
-    grass: &[Color; 2],
-    flowers: &[Color],
-    weather: &GroundWeather,
-) -> (char, Color) {
-    let r = pseudo_rand(x, y);
-    if weather.is_snowing {
-        if r < 30 { ('▓', grass[0]) } else { ('░', grass[1]) }
-    } else if weather.is_raining || weather.is_thunderstorm {
-        if r < 3 && !flowers.is_empty() {
-            let f_idx = (x + y) % flowers.len();
-            ('*', flowers[f_idx])
-        } else if r < 12 {
-            ('≈', Color::Rgb { r: 80, g: 120, b: 160 })
-        } else if r < 20 {
-            (',', grass[1])
-        } else {
-            ('^', grass[0])
+        if weather.is_raining || weather.is_thunderstorm {
+            let puddle_color = if dark_bg {
+                Color::Rgb(80, 120, 160)
+            } else {
+                Color::Rgb(40, 60, 100)
+            };
+            canvas.scatter_rect(
+                0.0,
+                y_start as f32,
+                w,
+                1.0,
+                0.08,
+                puddle_color,
+                777,
+            );
         }
-    } else if r < 5 && !flowers.is_empty() {
-        let f_idx = (x + y) % flowers.len();
-        ('*', flowers[f_idx])
-    } else if r < 15 {
-        (',', grass[1])
-    } else {
-        ('^', grass[0])
+
+        for row in 1..height {
+            let y = y_start + row;
+            let density = 0.15 - (row as f32 / height as f32) * 0.1;
+            canvas.scatter_rect(
+                0.0,
+                y as f32,
+                w,
+                1.0,
+                density.max(0.02),
+                soil_color,
+                row as u32 * 31,
+            );
+        }
     }
 }
 
-fn soil_cell(x: usize, y: usize, soil_color: Color, weather: &GroundWeather) -> (char, Color) {
-    let r = pseudo_rand(x, y);
-    if weather.is_snowing {
-        if r < 40 { ('░', Color::White) } else { (' ', soil_color) }
-    } else if weather.is_raining || weather.is_thunderstorm {
-        if r < 15 { ('≈', soil_color) } else if r < 22 { ('~', soil_color) } else { (' ', soil_color) }
-    } else if r < 20 {
-        ('~', soil_color)
-    } else if r < 25 {
-        ('.', soil_color)
+fn dry_palette(is_day: bool, dark_bg: bool) -> (Color, Color, Vec<Color>, Color) {
+    if is_day {
+        if dark_bg {
+            (
+                Color::Green,
+                Color::Rgb(0, 160, 0),
+                vec![Color::Magenta, Color::Red, Color::Cyan, Color::Yellow],
+                Color::Rgb(101, 67, 33),
+            )
+        } else {
+            (
+                Color::Rgb(0, 100, 0),
+                Color::Rgb(0, 80, 0),
+                vec![
+                    Color::Rgb(140, 0, 100),
+                    Color::Rgb(160, 0, 0),
+                    Color::Rgb(0, 100, 120),
+                    Color::Rgb(160, 140, 0),
+                ],
+                Color::Rgb(70, 45, 20),
+            )
+        }
+    } else if dark_bg {
+        (
+            Color::Rgb(0, 100, 0),
+            Color::Rgb(0, 50, 0),
+            vec![Color::Rgb(100, 0, 80), Color::Rgb(120, 0, 0)],
+            Color::Rgb(60, 40, 20),
+        )
     } else {
-        (' ', soil_color)
+        (
+            Color::Rgb(0, 60, 0),
+            Color::Rgb(0, 35, 0),
+            vec![Color::Rgb(80, 0, 60), Color::Rgb(90, 0, 0)],
+            Color::Rgb(40, 25, 10),
+        )
+    }
+}
+
+fn wet_palette(is_day: bool, dark_bg: bool) -> (Color, Color, Vec<Color>, Color) {
+    if is_day {
+        if dark_bg {
+            (
+                Color::Rgb(0, 100, 20),
+                Color::Rgb(0, 80, 15),
+                vec![Color::Rgb(120, 0, 80), Color::Rgb(140, 0, 0)],
+                Color::Rgb(65, 42, 22),
+            )
+        } else {
+            (
+                Color::Rgb(0, 70, 15),
+                Color::Rgb(0, 50, 10),
+                vec![Color::Rgb(80, 0, 60), Color::Rgb(100, 0, 0)],
+                Color::Rgb(45, 28, 14),
+            )
+        }
+    } else if dark_bg {
+        (
+            Color::Rgb(0, 55, 10),
+            Color::Rgb(0, 35, 5),
+            vec![],
+            Color::Rgb(38, 25, 12),
+        )
+    } else {
+        (
+            Color::Rgb(0, 40, 8),
+            Color::Rgb(0, 25, 4),
+            vec![],
+            Color::Rgb(28, 18, 8),
+        )
+    }
+}
+
+fn snow_palette(is_day: bool, dark_bg: bool) -> (Color, Color, Vec<Color>, Color) {
+    if is_day {
+        if dark_bg {
+            (Color::White, Color::Gray, vec![], Color::Rgb(200, 200, 210))
+        } else {
+            (
+                Color::Rgb(120, 120, 130),
+                Color::Rgb(100, 100, 110),
+                vec![],
+                Color::Rgb(100, 100, 110),
+            )
+        }
+    } else if dark_bg {
+        (Color::Gray, Color::DarkGray, vec![], Color::Rgb(100, 100, 110))
+    } else {
+        (
+            Color::Rgb(80, 80, 90),
+            Color::Rgb(60, 60, 70),
+            vec![],
+            Color::Rgb(60, 60, 70),
+        )
     }
 }

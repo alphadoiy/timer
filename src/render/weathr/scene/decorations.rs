@@ -1,6 +1,5 @@
-use crate::render::weathr::TerminalRenderer;
-use crossterm::style::Color;
-use std::io;
+use crate::render::weathr::BrailleWeatherCanvas;
+use ratatui::style::Color;
 
 #[derive(Default)]
 pub struct Decorations;
@@ -18,141 +17,205 @@ impl Decorations {
         Self
     }
 
-    pub fn render(
+    pub fn render_braille(
         &self,
-        renderer: &mut TerminalRenderer,
+        canvas: &mut BrailleWeatherCanvas,
         config: &DecorationRenderConfig,
-    ) -> io::Result<()> {
-        let (tree_lines, tree_color) = self.get_tree(config.is_day);
-        let tree_height = tree_lines.len() as u16;
-        let tree_y = config.horizon_y.saturating_sub(tree_height);
-        let tree_x = config.house_x.saturating_sub(20);
-
-        if tree_x > 0 {
-            for (i, line) in tree_lines.iter().enumerate() {
-                for (j, ch) in line.chars().enumerate() {
-                    if ch != ' ' {
-                        renderer.render_char(
-                            tree_x + j as u16,
-                            tree_y + i as u16,
-                            ch,
-                            tree_color,
-                        )?;
-                    }
-                }
-            }
+        dark_bg: bool,
+    ) {
+        let tree_x = config.house_x.saturating_sub(16) as f32;
+        if tree_x > 2.0 {
+            self.render_deciduous_tree(
+                canvas,
+                tree_x,
+                config.horizon_y as f32,
+                config.is_day,
+                dark_bg,
+            );
         }
 
-        let (fence_lines, fence_color) = self.get_fence(config.is_day);
-        let fence_height = fence_lines.len() as u16;
-        let fence_y = config.horizon_y.saturating_sub(fence_height);
-        let fence_x = config.house_x + config.house_width + 2;
-
-        if fence_x < config.width {
-            for (i, line) in fence_lines.iter().enumerate() {
-                for (j, ch) in line.chars().enumerate() {
-                    if ch != ' ' {
-                        renderer.render_char(
-                            fence_x + j as u16,
-                            fence_y + i as u16,
-                            ch,
-                            fence_color,
-                        )?;
-                    }
-                }
-            }
+        let fence_x = (config.house_x + config.house_width + 2) as f32;
+        if (fence_x as u16) < config.width.saturating_sub(5) {
+            self.render_fence(canvas, fence_x, config.horizon_y as f32, config.is_day, dark_bg);
         }
 
-        let (mailbox_lines, mailbox_color) = self.get_mailbox(config.is_day);
-        let mailbox_height = mailbox_lines.len() as u16;
-        let mailbox_x = tree_x.saturating_sub(10);
-        let mailbox_y = config.horizon_y.saturating_sub(mailbox_height);
-
-        if mailbox_x < config.width {
-            for (i, line) in mailbox_lines.iter().enumerate() {
-                for (j, ch) in line.chars().enumerate() {
-                    if ch != ' ' {
-                        renderer.render_char(
-                            mailbox_x + j as u16,
-                            mailbox_y + i as u16,
-                            ch,
-                            mailbox_color,
-                        )?;
-                    }
-                }
-            }
+        let mailbox_x = tree_x - 6.0;
+        if mailbox_x > 1.0 {
+            self.render_mailbox(
+                canvas,
+                mailbox_x,
+                config.horizon_y as f32,
+                config.is_day,
+                dark_bg,
+            );
         }
 
-        if config.width > 120 {
-            let (pine_lines, pine_color) = self.get_pine_tree(config.is_day);
-            let pine_height = pine_lines.len() as u16;
-            let pine_x = config.house_x + config.house_width + 18;
-            let pine_y = config.horizon_y.saturating_sub(pine_height);
-
-            if pine_x + 10 < config.width {
-                for (i, line) in pine_lines.iter().enumerate() {
-                    for (j, ch) in line.chars().enumerate() {
-                        if ch != ' ' {
-                            renderer.render_char(
-                                pine_x + j as u16,
-                                pine_y + i as u16,
-                                ch,
-                                pine_color,
-                            )?;
-                        }
-                    }
-                }
+        if config.width > 60 {
+            let pine_x = (config.house_x + config.house_width + 14) as f32;
+            if (pine_x as u16 + 8) < config.width {
+                self.render_pine_tree(
+                    canvas,
+                    pine_x,
+                    config.horizon_y as f32,
+                    config.is_day,
+                    dark_bg,
+                );
             }
         }
-
-        Ok(())
     }
 
-    fn get_tree(&self, is_day: bool) -> (Vec<&'static str>, Color) {
-        (
-            vec![
-                "      ####      ",
-                "    ########    ",
-                "   ##########   ",
-                "    ########    ",
-                "      _||_      ",
-            ],
-            if is_day {
-                Color::DarkGreen
-            } else {
-                Color::Rgb { r: 0, g: 50, b: 0 }
-            },
-        )
+    fn render_deciduous_tree(
+        &self,
+        canvas: &mut BrailleWeatherCanvas,
+        x: f32,
+        horizon: f32,
+        is_day: bool,
+        dark_bg: bool,
+    ) {
+        let trunk_color = if dark_bg {
+            Color::Rgb(100, 70, 40)
+        } else {
+            Color::Rgb(60, 40, 20)
+        };
+        let canopy_color = if is_day {
+            if dark_bg { Color::Rgb(0, 140, 30) } else { Color::Rgb(0, 80, 15) }
+        } else if dark_bg {
+            Color::Rgb(0, 60, 10)
+        } else {
+            Color::Rgb(0, 35, 5)
+        };
+        let canopy_highlight = if is_day {
+            if dark_bg { Color::Rgb(20, 170, 50) } else { Color::Rgb(10, 100, 25) }
+        } else if dark_bg {
+            Color::Rgb(10, 80, 20)
+        } else {
+            Color::Rgb(5, 50, 10)
+        };
+
+        let centre = x + 3.0;
+
+        // Trunk with a slight fork at the top
+        canvas.fill_rect(centre - 0.5, horizon - 6.0, 1.0, 6.0, trunk_color);
+        canvas.draw_line(centre, horizon - 5.5, centre - 1.5, horizon - 7.0, trunk_color);
+        canvas.draw_line(centre, horizon - 5.0, centre + 1.5, horizon - 6.5, trunk_color);
+
+        // Layered ellipse canopy
+        canvas.fill_ellipse(centre, horizon - 9.0, 4.0, 2.0, canopy_color);
+        canvas.fill_ellipse(centre - 1.5, horizon - 8.0, 3.0, 1.5, canopy_color);
+        canvas.fill_ellipse(centre + 1.5, horizon - 8.0, 3.0, 1.5, canopy_color);
+        canvas.fill_ellipse(centre, horizon - 7.5, 4.5, 1.8, canopy_color);
+
+        // Highlight on upper-left for sun-lit effect
+        canvas.fill_ellipse(centre - 1.0, horizon - 9.5, 2.0, 0.8, canopy_highlight);
     }
 
-    fn get_fence(&self, is_day: bool) -> (Vec<&'static str>, Color) {
-        (
-            vec!["|--|--|--|--|", "|  |  |  |  |"],
-            if is_day { Color::White } else { Color::Grey },
-        )
+    fn render_pine_tree(
+        &self,
+        canvas: &mut BrailleWeatherCanvas,
+        x: f32,
+        horizon: f32,
+        is_day: bool,
+        dark_bg: bool,
+    ) {
+        let trunk_color = if dark_bg {
+            Color::Rgb(100, 70, 40)
+        } else {
+            Color::Rgb(60, 40, 20)
+        };
+        let dark_green = if is_day {
+            if dark_bg { Color::Rgb(0, 100, 15) } else { Color::Rgb(0, 60, 8) }
+        } else if dark_bg {
+            Color::Rgb(0, 40, 8)
+        } else {
+            Color::Rgb(0, 25, 4)
+        };
+        let mid_green = if is_day {
+            if dark_bg { Color::Rgb(0, 130, 25) } else { Color::Rgb(0, 75, 12) }
+        } else if dark_bg {
+            Color::Rgb(0, 55, 12)
+        } else {
+            Color::Rgb(0, 32, 6)
+        };
+        let light_green = if is_day {
+            if dark_bg { Color::Rgb(10, 160, 35) } else { Color::Rgb(5, 95, 18) }
+        } else if dark_bg {
+            Color::Rgb(5, 70, 15)
+        } else {
+            Color::Rgb(2, 42, 8)
+        };
+
+        let centre = x + 3.0;
+
+        // Trunk
+        canvas.fill_rect(centre - 0.5, horizon - 3.0, 1.0, 3.0, trunk_color);
+
+        // Three overlapping triangle tiers, drawn bottom-to-top so upper
+        // tiers overwrite lower ones with lighter green.
+        canvas.fill_triangle(
+            centre, horizon - 7.0,
+            x - 0.5, horizon - 3.0,
+            x + 6.5, horizon - 3.0,
+            dark_green,
+        );
+        canvas.fill_triangle(
+            centre, horizon - 10.0,
+            x + 0.5, horizon - 5.0,
+            x + 5.5, horizon - 5.0,
+            mid_green,
+        );
+        canvas.fill_triangle(
+            centre, horizon - 12.5,
+            x + 1.0, horizon - 8.0,
+            x + 5.0, horizon - 8.0,
+            light_green,
+        );
     }
 
-    fn get_mailbox(&self, is_day: bool) -> (Vec<&'static str>, Color) {
-        (
-            vec![" ___ ", "|___|", "  |  "],
-            if is_day { Color::Blue } else { Color::DarkBlue },
-        )
+    fn render_fence(
+        &self,
+        canvas: &mut BrailleWeatherCanvas,
+        x: f32,
+        horizon: f32,
+        is_day: bool,
+        dark_bg: bool,
+    ) {
+        let color = if is_day {
+            if dark_bg { Color::White } else { Color::Rgb(100, 100, 100) }
+        } else if dark_bg {
+            Color::Gray
+        } else {
+            Color::Rgb(70, 70, 70)
+        };
+        let post_count = 5;
+        let spacing = 2.0;
+        let fence_h = 2.0;
+        for i in 0..post_count {
+            let px = x + i as f32 * spacing;
+            canvas.draw_line(px, horizon - fence_h, px, horizon, color);
+        }
+        let rail_y1 = horizon - fence_h * 0.8;
+        let rail_y2 = horizon - fence_h * 0.3;
+        let end_x = x + (post_count - 1) as f32 * spacing;
+        canvas.draw_line(x, rail_y1, end_x, rail_y1, color);
+        canvas.draw_line(x, rail_y2, end_x, rail_y2, color);
     }
 
-    fn get_pine_tree(&self, is_day: bool) -> (Vec<&'static str>, Color) {
-        (
-            vec![
-                "    *    ",
-                "   ***   ",
-                "  *****  ",
-                " ******* ",
-                "   |||   ",
-            ],
-            if is_day {
-                Color::DarkGreen
-            } else {
-                Color::Rgb { r: 0, g: 50, b: 0 }
-            },
-        )
+    fn render_mailbox(
+        &self,
+        canvas: &mut BrailleWeatherCanvas,
+        x: f32,
+        horizon: f32,
+        is_day: bool,
+        dark_bg: bool,
+    ) {
+        let color = if is_day {
+            if dark_bg { Color::Blue } else { Color::Rgb(0, 0, 140) }
+        } else if dark_bg {
+            Color::Rgb(40, 40, 120)
+        } else {
+            Color::Rgb(20, 20, 80)
+        };
+        canvas.draw_line(x + 1.0, horizon - 3.0, x + 1.0, horizon, color);
+        canvas.fill_rect(x, horizon - 4.0, 2.5, 1.5, color);
     }
 }

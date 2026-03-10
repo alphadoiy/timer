@@ -1,8 +1,7 @@
-use crate::render::weathr::TerminalRenderer;
+use crate::render::weathr::BrailleWeatherCanvas;
 use crate::render::weathr::types::SnowIntensity;
-use crossterm::style::Color;
 use rand::prelude::*;
-use std::io;
+use ratatui::style::Color;
 
 const MAX_SNOW_DEPTH: u8 = 4;
 
@@ -12,8 +11,7 @@ struct Snowflake {
     speed_y: f32,
     speed_x: f32,
     sway_offset: f32,
-    character: char,
-    color: Color,
+    z_index: u8,
 }
 
 pub struct SnowSystem {
@@ -26,163 +24,136 @@ pub struct SnowSystem {
 }
 
 impl SnowSystem {
-    pub fn new(terminal_width: u16, terminal_height: u16, intensity: SnowIntensity) -> Self {
-        let flakes_capacity = match intensity {
-            SnowIntensity::Light => (terminal_width / 4) as usize,
-            SnowIntensity::Medium => (terminal_width / 2) as usize,
-            SnowIntensity::Heavy => terminal_width as usize,
+    pub fn new(tw: u16, th: u16, intensity: SnowIntensity) -> Self {
+        let cap = match intensity {
+            SnowIntensity::Light => (tw / 4) as usize,
+            SnowIntensity::Medium => (tw / 2) as usize,
+            SnowIntensity::Heavy => tw as usize,
         };
-
-        let mut system = Self {
-            flakes: Vec::with_capacity(flakes_capacity),
-            terminal_width,
-            terminal_height,
+        let mut sys = Self {
+            flakes: Vec::with_capacity(cap),
+            terminal_width: tw,
+            terminal_height: th,
             intensity,
             wind_x: 0.0,
-            ground_snow: vec![0; terminal_width as usize],
+            ground_snow: vec![0; tw as usize],
         };
-        // Initialize with some default wind
-        let wind_dir = if rand::random::<bool>() { 0.2 } else { -0.2 };
-        system.set_intensity_with_dir(intensity, wind_dir);
-        system
+        let dir = if rand::random::<bool>() { 0.2 } else { -0.2 };
+        sys.set_intensity_with_dir(intensity, dir);
+        sys
     }
 
     pub fn set_intensity(&mut self, intensity: SnowIntensity) {
-        // Preserve direction but update magnitude based on intensity if needed
-        let current_dir = if self.wind_x >= 0.0 { 1.0 } else { -1.0 };
-        self.set_intensity_with_dir(intensity, current_dir);
+        let dir = if self.wind_x >= 0.0 { 1.0 } else { -1.0 };
+        self.set_intensity_with_dir(intensity, dir);
     }
 
-    pub fn set_intensity_with_dir(&mut self, intensity: SnowIntensity, direction_multiplier: f32) {
+    fn set_intensity_with_dir(&mut self, intensity: SnowIntensity, dir: f32) {
         self.intensity = intensity;
-        let base_wind = match intensity {
+        let base = match intensity {
             SnowIntensity::Light => 0.05,
             SnowIntensity::Medium => 0.1,
             SnowIntensity::Heavy => 0.2,
         };
-        self.wind_x = base_wind * direction_multiplier;
+        self.wind_x = base * dir;
     }
 
     pub fn set_wind(&mut self, speed_kmh: f32, direction_deg: f32) {
-        let speed_factor = speed_kmh / 20.0;
-        let direction_rad = direction_deg.to_radians();
-        let x_component = -direction_rad.sin();
-        self.wind_x = speed_factor * x_component;
+        let factor = speed_kmh / 20.0;
+        let rad = direction_deg.to_radians();
+        self.wind_x = factor * (-rad.sin());
     }
 
     fn spawn_flake(&mut self, rng: &mut impl Rng) {
-        // Spawn across a wider area to account for wind blowing them in
         let x = (rng.random::<u32>() % (self.terminal_width as u32 * 3)) as f32
             - (self.terminal_width as f32);
-
-        let z_index = if rng.random::<bool>() { 1 } else { 0 };
-
-        let (base_speed_y, chars) = match self.intensity {
-            SnowIntensity::Light => (if z_index == 1 { 0.15 } else { 0.08 }, vec!['.', '·']),
-            SnowIntensity::Medium => (if z_index == 1 { 0.2 } else { 0.1 }, vec!['.', '·', '*']),
-            SnowIntensity::Heavy => (if z_index == 1 { 0.3 } else { 0.15 }, vec!['*', '.', '·']),
+        let z = if rng.random::<bool>() { 1 } else { 0 };
+        let base_speed = match self.intensity {
+            SnowIntensity::Light => if z == 1 { 0.15 } else { 0.08 },
+            SnowIntensity::Medium => if z == 1 { 0.2 } else { 0.1 },
+            SnowIntensity::Heavy => if z == 1 { 0.3 } else { 0.15 },
         };
-
-        let char_idx = (rng.random::<u32>() as usize) % chars.len();
-
         self.flakes.push(Snowflake {
             x,
             y: 0.0,
-            speed_y: base_speed_y + (rng.random::<f32>() * 0.05),
+            speed_y: base_speed + rng.random::<f32>() * 0.05,
             speed_x: self.wind_x + (rng.random::<f32>() * 0.1 - 0.05),
-            sway_offset: rng.random::<f32>() * 100.0, // Random phase for sway
-            character: chars[char_idx],
-            color: if z_index == 1 {
-                Color::White
-            } else {
-                Color::DarkGrey
-            },
+            sway_offset: rng.random::<f32>() * 100.0,
+            z_index: z,
         });
     }
 
-    pub fn update(&mut self, terminal_width: u16, terminal_height: u16, rng: &mut impl Rng) {
-        self.terminal_width = terminal_width;
-        self.terminal_height = terminal_height;
-
-        if self.ground_snow.len() != terminal_width as usize {
-            self.ground_snow.resize(terminal_width as usize, 0);
+    pub fn update(&mut self, tw: u16, th: u16, rng: &mut impl Rng) {
+        self.terminal_width = tw;
+        self.terminal_height = th;
+        if self.ground_snow.len() != tw as usize {
+            self.ground_snow.resize(tw as usize, 0);
         }
-
-        let target_count = match self.intensity {
-            SnowIntensity::Light => (terminal_width / 4) as usize,
-            SnowIntensity::Medium => (terminal_width / 2) as usize,
-            SnowIntensity::Heavy => terminal_width as usize,
+        let target = match self.intensity {
+            SnowIntensity::Light => (tw / 4) as usize,
+            SnowIntensity::Medium => (tw / 2) as usize,
+            SnowIntensity::Heavy => tw as usize,
         };
-
-        if self.flakes.len() < target_count {
-            let spawn_rate = match self.intensity {
+        if self.flakes.len() < target {
+            let rate = match self.intensity {
                 SnowIntensity::Light => 1,
                 SnowIntensity::Medium => 2,
                 SnowIntensity::Heavy => 4,
             };
-            for _ in 0..spawn_rate {
+            for _ in 0..rate {
                 self.spawn_flake(rng);
             }
         }
-
         let ground_snow = &mut self.ground_snow;
-        let tw = terminal_width;
-        self.flakes.retain_mut(|flake| {
-            flake.y += flake.speed_y;
-
-            let sway = (flake.y * 0.2 + flake.sway_offset).sin() * 0.05;
-            flake.x += flake.speed_x + sway;
-
-            let col = flake.x as usize;
-            let snow_at = ground_snow.get(col).copied().unwrap_or(0);
-            let land_y = (terminal_height.saturating_sub(1 + snow_at as u16)) as f32;
-
-            if flake.y >= land_y {
+        self.flakes.retain_mut(|f| {
+            f.y += f.speed_y;
+            let sway = (f.y * 0.2 + f.sway_offset).sin() * 0.05;
+            f.x += f.speed_x + sway;
+            let col = f.x as usize;
+            let depth = ground_snow.get(col).copied().unwrap_or(0);
+            let land_y = (th.saturating_sub(1 + depth as u16)) as f32;
+            if f.y >= land_y {
                 if col < ground_snow.len() && ground_snow[col] < MAX_SNOW_DEPTH {
                     ground_snow[col] = ground_snow[col].saturating_add(1);
                 }
                 return false;
             }
-
-            if flake.x < -20.0 || flake.x > (tw as f32 + 20.0) {
-                return false;
-            }
-
-            true
+            f.x > -20.0 && f.x < (tw as f32 + 20.0)
         });
     }
 
-    pub fn render(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
-        for flake in &self.flakes {
-            let x = flake.x as i16;
-            let y = flake.y as i16;
-
-            if x >= 0 && x < self.terminal_width as i16 && y >= 0 && y < self.terminal_height as i16
-            {
-                renderer.render_char(x as u16, y as u16, flake.character, flake.color)?;
+    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+        let (near, far) = if dark_bg {
+            (Color::White, Color::Rgb(140, 140, 160))
+        } else {
+            (Color::Rgb(80, 80, 100), Color::Rgb(120, 120, 140))
+        };
+        for f in &self.flakes {
+            let color = if f.z_index == 1 { near } else { far };
+            canvas.plot_f(f.x, f.y, color);
+            if f.z_index == 1 && self.intensity != SnowIntensity::Light {
+                canvas.plot_f(f.x + 0.5, f.y, color);
             }
         }
-
-        self.render_ground_snow(renderer)?;
-        Ok(())
+        self.render_ground_braille(canvas, dark_bg);
     }
 
-    fn render_ground_snow(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
+    fn render_ground_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+        let (primary, secondary) = if dark_bg {
+            (Color::White, Color::Rgb(200, 200, 220))
+        } else {
+            (Color::Rgb(160, 160, 180), Color::Rgb(120, 120, 140))
+        };
         for (col, &depth) in self.ground_snow.iter().enumerate() {
             if depth == 0 {
                 continue;
             }
-            let x = col as u16;
             for d in 0..depth {
-                let y = self.terminal_height.saturating_sub(1 + d as u16);
-                let (ch, color) = match d {
-                    0 => ('▓', Color::White),
-                    1 => ('▒', Color::White),
-                    _ => ('░', Color::Grey),
-                };
-                renderer.render_char(x, y, ch, color)?;
+                let y = (self.terminal_height.saturating_sub(1 + d as u16)) as f32;
+                let color = if d == 0 { primary } else { secondary };
+                let density = if d == 0 { 0.8 } else { 0.5 };
+                canvas.scatter_rect(col as f32, y, 1.0, 1.0, density, color, col as u32);
             }
         }
-        Ok(())
     }
 }

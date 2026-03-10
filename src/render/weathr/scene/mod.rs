@@ -2,9 +2,8 @@ pub mod decorations;
 pub mod ground;
 pub mod house;
 
-use crate::render::weathr::TerminalRenderer;
+use crate::render::weathr::BrailleWeatherCanvas;
 use ground::GroundWeather;
-use std::io;
 
 pub struct WorldScene {
     house: house::House,
@@ -32,12 +31,13 @@ impl WorldScene {
         self.height = height;
     }
 
-    pub fn render_with_weather(
+    pub fn render_braille(
         &self,
-        renderer: &mut TerminalRenderer,
+        canvas: &mut BrailleWeatherCanvas,
         is_day: bool,
         weather: GroundWeather,
-    ) -> io::Result<()> {
+        dark_bg: bool,
+    ) {
         let horizon_y = self.height.saturating_sub(Self::GROUND_HEIGHT);
 
         let house_width = self.house.width();
@@ -45,13 +45,20 @@ impl WorldScene {
         let house_x = (self.width / 2).saturating_sub(house_width / 2);
         let house_y = horizon_y.saturating_sub(house_height);
 
-        self.ground
-            .render_with_weather(renderer, self.width, Self::GROUND_HEIGHT, horizon_y, is_day, weather)?;
+        self.ground.render_braille(
+            canvas,
+            self.width,
+            Self::GROUND_HEIGHT,
+            horizon_y,
+            is_day,
+            weather,
+            dark_bg,
+        );
 
-        self.house.render(renderer, house_x, house_y, is_day)?;
+        self.house.render_braille(canvas, house_x, house_y, is_day, dark_bg);
 
-        self.decorations.render(
-            renderer,
+        self.decorations.render_braille(
+            canvas,
             &decorations::DecorationRenderConfig {
                 horizon_y,
                 house_x,
@@ -59,8 +66,7 @@ impl WorldScene {
                 width: self.width,
                 is_day,
             },
-        )?;
-
-        Ok(())
+            dark_bg,
+        );
     }
 }

@@ -1,7 +1,6 @@
-use crate::render::weathr::TerminalRenderer;
-use crossterm::style::Color;
+use crate::render::weathr::BrailleWeatherCanvas;
 use rand::prelude::*;
-use std::io;
+use ratatui::style::Color;
 
 #[derive(Clone, Copy)]
 struct Star {
@@ -28,51 +27,39 @@ pub struct StarSystem {
 }
 
 impl StarSystem {
-    const MIN_DISTANCE: f32 = 3.0; // Minimum distance between stars
+    const MIN_DISTANCE: f32 = 3.0;
 
-    pub fn new(terminal_width: u16, terminal_height: u16) -> Self {
-        let stars = Self::create_stars(terminal_width, terminal_height, &[]);
-
+    pub fn new(tw: u16, th: u16) -> Self {
+        let stars = Self::create_stars(tw, th, &[]);
         Self {
             stars,
             shooting_star: None,
-            terminal_width,
-            terminal_height,
+            terminal_width: tw,
+            terminal_height: th,
         }
     }
 
-    fn create_stars(
-        terminal_width: u16,
-        terminal_height: u16,
-        initial_stars: &[Star],
-    ) -> Vec<Star> {
+    fn create_stars(tw: u16, th: u16, initial: &[Star]) -> Vec<Star> {
         let mut rng = rand::rng();
-        let count = (terminal_width as usize * terminal_height as usize) / 80;
-
-        let mut stars: Vec<Star> = initial_stars
+        let count = (tw as usize * th as usize) / 80;
+        let mut stars: Vec<Star> = initial
             .iter()
-            .cloned()
-            .filter(|s| s.x < terminal_width && s.y < terminal_height / 2)
+            .copied()
+            .filter(|s| s.x < tw && s.y < th / 2)
             .take(count)
             .collect();
-
         let needed = count.saturating_sub(stars.len());
         for _ in 0..needed {
             let mut attempts = 0;
-            let max_attempts = 50;
-
             loop {
-                let x = rng.random::<u16>() % terminal_width;
-                let y = rng.random::<u16>() % (terminal_height / 2);
-
-                let too_close = stars.iter().any(|star: &Star| {
-                    let dx = (star.x as f32 - x as f32).abs();
-                    let dy = (star.y as f32 - y as f32).abs();
-                    let distance = (dx * dx + dy * dy).sqrt();
-                    distance < Self::MIN_DISTANCE
+                let x = rng.random::<u16>() % tw;
+                let y = rng.random::<u16>() % (th / 2);
+                let too_close = stars.iter().any(|s| {
+                    let dx = (s.x as f32 - x as f32).abs();
+                    let dy = (s.y as f32 - y as f32).abs();
+                    (dx * dx + dy * dy).sqrt() < Self::MIN_DISTANCE
                 });
-
-                if !too_close || attempts >= max_attempts {
+                if !too_close || attempts >= 50 {
                     stars.push(Star {
                         x,
                         y,
@@ -81,101 +68,72 @@ impl StarSystem {
                     });
                     break;
                 }
-
                 attempts += 1;
             }
         }
-
         stars
     }
 
-    pub fn update(&mut self, terminal_width: u16, terminal_height: u16, rng: &mut impl Rng) {
-        if terminal_width != self.terminal_width || terminal_height != self.terminal_height {
-            // Fix stars not resizing
-            self.stars = Self::create_stars(terminal_width, terminal_height, &self.stars);
-
-            self.terminal_width = terminal_width;
-            self.terminal_height = terminal_height;
-
+    pub fn update(&mut self, tw: u16, th: u16, rng: &mut impl Rng) {
+        if tw != self.terminal_width || th != self.terminal_height {
+            self.stars = Self::create_stars(tw, th, &self.stars);
+            self.terminal_width = tw;
+            self.terminal_height = th;
             return;
         }
-
-        // Twinkle
         for star in &mut self.stars {
             star.phase += 0.05;
-            star.brightness = (star.phase.sin() + 1.0) / 2.0; // 0.0 to 1.0
+            star.brightness = (star.phase.sin() + 1.0) / 2.0;
         }
-
-        // Shooting Star Logic
-        if let Some(ref mut star) = self.shooting_star {
-            star.x += star.speed_x;
-            star.y += star.speed_y;
-
-            if star.x < 0.0 || star.y as u16 >= terminal_height || star.length == 0 {
+        if let Some(ref mut s) = self.shooting_star {
+            s.x += s.speed_x;
+            s.y += s.speed_y;
+            if s.x < 0.0 || s.y as u16 >= th || s.length == 0 {
                 self.shooting_star = None;
             }
         } else if rng.random::<f32>() < 0.005 {
-            let start_x = (rng.random::<u16>() % (terminal_width / 2)) + (terminal_width / 4);
-            let start_y = rng.random::<u16>() % (terminal_height / 4);
-
+            let sx = (rng.random::<u16>() % (tw / 2)) + (tw / 4);
+            let sy = rng.random::<u16>() % (th / 4);
             self.shooting_star = Some(ShootingStar {
-                x: start_x as f32,
-                y: start_y as f32,
+                x: sx as f32,
+                y: sy as f32,
                 speed_x: if rng.random::<bool>() { 1.5 } else { -1.5 },
-                speed_y: 0.5 + (rng.random::<f32>() * 0.5),
+                speed_y: 0.5 + rng.random::<f32>() * 0.5,
                 length: 5,
                 active: true,
             });
         }
     }
 
-    pub fn render(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
+    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         for star in &self.stars {
-            let ch = if star.brightness > 0.8 {
-                '*'
-            } else if star.brightness > 0.4 {
-                '+'
-            } else {
-                '.'
-            };
             let color = if star.brightness > 0.6 {
-                Color::White
+                if dark_bg { Color::White } else { Color::Rgb(60, 60, 80) }
+            } else if dark_bg {
+                Color::Rgb(100, 100, 120)
             } else {
-                Color::DarkGrey
+                Color::Rgb(120, 120, 140)
             };
-
-            renderer.render_char(star.x, star.y, ch, color)?;
-        }
-
-        if let Some(ref star) = self.shooting_star
-            && star.active
-        {
-            let head_x = star.x as i16;
-            let head_y = star.y as i16;
-
-            if head_x >= 0
-                && head_x < self.terminal_width as i16
-                && head_y >= 0
-                && head_y < self.terminal_height as i16
-            {
-                renderer.render_char(head_x as u16, head_y as u16, '*', Color::White)?;
-            }
-
-            for i in 1..star.length {
-                let trail_x = (star.x - (star.speed_x * i as f32)) as i16;
-                let trail_y = (star.y - (star.speed_y * i as f32)) as i16;
-
-                if trail_x >= 0
-                    && trail_x < self.terminal_width as i16
-                    && trail_y >= 0
-                    && trail_y < self.terminal_height as i16
-                {
-                    let ch = if i == 1 { '+' } else { '.' };
-                    renderer.render_char(trail_x as u16, trail_y as u16, ch, Color::White)?;
-                }
+            if star.brightness > 0.3 {
+                canvas.plot_f(star.x as f32, star.y as f32, color);
             }
         }
-
-        Ok(())
+        if let Some(ref s) = self.shooting_star {
+            if !s.active {
+                return;
+            }
+            let head_color = if dark_bg { Color::White } else { Color::Rgb(40, 40, 60) };
+            let tail_color = if dark_bg {
+                Color::Rgb(160, 160, 180)
+            } else {
+                Color::Rgb(100, 100, 120)
+            };
+            canvas.plot_f(s.x, s.y, head_color);
+            for i in 1..s.length {
+                let tx = s.x - s.speed_x * i as f32;
+                let ty = s.y - s.speed_y * i as f32;
+                canvas.plot_f(tx, ty, tail_color);
+            }
+        }
     }
 }
