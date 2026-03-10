@@ -103,11 +103,14 @@ impl BrailleWeatherCanvas {
         }
     }
 
+    /// Draw circle outline that appears visually round in the terminal.
+    /// Equivalent to `fill_ellipse` with `ry = r / 2` (compensates for ~2:1
+    /// cell aspect ratio).
     pub fn draw_circle(&mut self, cx: f32, cy: f32, r: f32, color: Color) {
         let scx = cx * 2.0;
         let scy = cy * 4.0;
         let srx = r * 2.0;
-        let sry = r * 4.0;
+        let sry = r * 2.0;
         let circumference = (2.0 * std::f32::consts::PI * srx.max(sry)) as usize;
         let steps = circumference.max(12);
         for i in 0..steps {
@@ -118,11 +121,13 @@ impl BrailleWeatherCanvas {
         }
     }
 
+    /// Fill a circle that appears visually round in the terminal.
+    /// Equivalent to `fill_ellipse` with `ry = r / 2`.
     pub fn fill_circle(&mut self, cx: f32, cy: f32, r: f32, color: Color) {
         let scx = cx * 2.0;
         let scy = cy * 4.0;
         let srx = r * 2.0;
-        let sry = r * 4.0;
+        let sry = r * 2.0;
         let y_min = (scy - sry).floor() as i32;
         let y_max = (scy + sry).ceil() as i32;
         for sy in y_min..=y_max {

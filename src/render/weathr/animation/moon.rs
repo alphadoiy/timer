@@ -11,8 +11,8 @@ impl MoonSystem {
     pub fn new(tw: u16, th: u16, phase: Option<f64>) -> Self {
         Self {
             phase: phase.unwrap_or(0.5),
-            x: (tw / 4) + 10,
-            y: (th / 4) + 2,
+            x: (tw * 5 / 6).min(tw.saturating_sub(8)),
+            y: (th / 4).max(2),
         }
     }
 
@@ -21,14 +21,14 @@ impl MoonSystem {
     }
 
     pub fn update(&mut self, tw: u16, th: u16) {
-        self.x = (tw / 4 * 3).min(tw.saturating_sub(15));
+        self.x = (tw * 5 / 6).min(tw.saturating_sub(8));
         self.y = (th / 4).max(2);
     }
 
     pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         let cx = self.x as f32;
         let cy = self.y as f32;
-        let r = 2.8;
+        let r = 3.5;
 
         let (body_color, crater_color, edge_color) = if dark_bg {
             (

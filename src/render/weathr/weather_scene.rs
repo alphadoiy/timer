@@ -243,7 +243,6 @@ impl WeatherScene {
 
         if !flags.is_day {
             self.stars.render_braille(&mut self.canvas, dark_bg);
-            self.moon.render_braille(&mut self.canvas, dark_bg);
             if self.should_show_fireflies() {
                 self.fireflies.render_braille(&mut self.canvas, dark_bg);
             }
@@ -281,6 +280,10 @@ impl WeatherScene {
         };
         self.scene
             .render_braille(&mut self.canvas, flags.is_day, ground_weather, dark_bg);
+
+        if !flags.is_day {
+            self.moon.render_braille(&mut self.canvas, dark_bg);
+        }
 
         if !flags.is_raining && !flags.is_thunderstorm {
             self.chimney.render_braille(&mut self.canvas, dark_bg);

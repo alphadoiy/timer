@@ -2,7 +2,7 @@ use crate::render::weathr::BrailleWeatherCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 
-/// A single cloud made of one flat body ellipse and several rounded bumps.
+/// A single cloud: one flat body ellipse + large overlapping top lobes.
 ///
 /// # Coordinate convention (cell coords, terminal cells are ~2:1 tall)
 ///
@@ -12,8 +12,10 @@ use ratatui::style::Color;
 ///   ∴ visually round  → ry = rx / 2
 ///     2:1 wide (flat) → ry = rx / 4
 ///
-/// The body uses ry_body = rx / 4 (nice flat base).
-/// Each bump uses ry_bump = br / 2 (visually round puffs).
+/// The body uses ry_body = rx / 6 (flat bottom edge).
+/// Each lobe uses ry_lobe = br / 2 (visually round puffs).
+/// Lobes are large (proportional to rx) and overlap, forming a smooth
+/// classic cloud silhouette like the reference image.
 struct Cloud {
     x: f32,
     y: f32,
@@ -21,7 +23,7 @@ struct Cloud {
     wind_x: f32,
     /// Horizontal semi-radius of the flat body (cells).
     rx: f32,
-    /// Vertical semi-radius of the flat body (cells) = rx / 4.
+    /// Vertical semi-radius of the flat body (cells).
     ry_body: f32,
     /// List of (x_offset, y_offset, radius) for the top puffs.
     bumps: Vec<(f32, f32, f32)>,
@@ -71,35 +73,43 @@ impl CloudSystem {
         base_wind: f32,
         rng: &mut impl Rng,
     ) -> Cloud {
-        // Clouds live in the top 40% of the scene.
-        let y_max = ((th as f32 * 0.38).ceil() as u16).max(2);
-        let y = 1.0 + (rng.random::<u16>() % y_max) as f32;
         let speed = 0.025 + rng.random::<f32>() * 0.035;
         let wind_x = base_wind * (0.7 + rng.random::<f32>() * 0.6);
-        // Width varies with terminal width so clouds look proportional.
-        let max_rx = (tw as f32 * 0.08).max(4.0).min(10.0);
-        let rx = 3.5 + rng.random::<f32>() * (max_rx - 3.5);
-        // Flat body: ry = rx/4 gives 2:1 visual aspect ratio.
-        let ry_body = rx / 4.0;
 
-        // Generate 2–4 rounded bumps evenly across the top of the body.
-        let bump_count = 2 + (rng.random::<u32>() % 3) as usize;
-        let mut bumps = Vec::with_capacity(bump_count);
-        // Spread bumps across [-rx*0.65, rx*0.65] with slight jitter.
-        let span = rx * 1.3;
-        let step = span / bump_count as f32;
-        for i in 0..bump_count {
-            let bx = -rx * 0.65 + step * (i as f32 + 0.5)
-                + (rng.random::<f32>() - 0.5) * step * 0.3;
-            // Bump radius: smaller near the edges, taller in the middle.
-            let edge_factor = 1.0 - (2.0 * i as f32 / (bump_count - 1).max(1) as f32 - 1.0).abs();
-            let br = ry_body * 1.2 + edge_factor * ry_body * 1.5 + rng.random::<f32>() * ry_body;
-            // y-offset: bump circle sits on top of the body (just above the body edge).
-            // body top is at cy - ry_body. bump center: cy - ry_body - br*0.5 + overlap
-            let overlap = br * 0.4; // overlap with body for seamless look
-            let by = -(ry_body + br / 2.0 - overlap);
-            bumps.push((bx, by, br));
-        }
+        let max_rx = (tw as f32 * 0.09).max(5.5).min(12.0);
+        let rx = 4.5 + rng.random::<f32>() * (max_rx - 4.5);
+        // Very flat body forms the cloud's flat bottom edge.
+        let ry_body = rx / 6.0;
+
+        // Tallest lobe (center) reaches ~rx*0.35 above center; keep inside canvas.
+        let bump_clearance = (rx * 0.35).ceil().max(1.0);
+        let y_upper = (th as f32 * 0.40).max(bump_clearance + 2.0);
+        let y = bump_clearance + rng.random::<f32>() * (y_upper - bump_clearance);
+
+        // Classic cloud silhouette: 3 large overlapping lobes + 2 side puffs.
+        // Lobe radii scale with rx so they merge into a smooth top contour.
+        let mut bumps = Vec::with_capacity(5);
+        let jx = (rng.random::<f32>() - 0.5) * rx * 0.04;
+
+        // Center lobe — tallest.
+        let cr = rx * (0.33 + rng.random::<f32>() * 0.06);
+        bumps.push((jx, -(cr * 0.35), cr));
+
+        // Left lobe.
+        let lr = rx * (0.26 + rng.random::<f32>() * 0.05);
+        bumps.push((-rx * (0.36 + rng.random::<f32>() * 0.04), -(lr * 0.25), lr));
+
+        // Right lobe.
+        let rr = rx * (0.26 + rng.random::<f32>() * 0.05);
+        bumps.push((rx * (0.36 + rng.random::<f32>() * 0.04), -(rr * 0.25), rr));
+
+        // Left edge puff.
+        let lp = rx * (0.16 + rng.random::<f32>() * 0.03);
+        bumps.push((-rx * (0.68 + rng.random::<f32>() * 0.04), -ry_body * 0.05, lp));
+
+        // Right edge puff.
+        let rp = rx * (0.15 + rng.random::<f32>() * 0.03);
+        bumps.push((rx * (0.68 + rng.random::<f32>() * 0.04), -ry_body * 0.05, rp));
 
         Cloud { x, y, speed, wind_x, rx, ry_body, bumps, is_dark }
     }
@@ -140,6 +150,13 @@ impl CloudSystem {
             } else {
                 Color::Rgb(75, 75, 85)
             };
+            let highlight_color = if cloud.is_dark {
+                if dark_bg { Color::Rgb(112, 112, 122) } else { Color::Rgb(140, 140, 150) }
+            } else if dark_bg {
+                Color::Rgb(232, 232, 242)
+            } else {
+                Color::Rgb(95, 95, 108)
+            };
             let shadow_color = if cloud.is_dark {
                 if dark_bg { Color::Rgb(70, 70, 80) } else { Color::Rgb(100, 100, 110) }
             } else if dark_bg {
@@ -148,25 +165,62 @@ impl CloudSystem {
                 Color::Rgb(100, 100, 110)
             };
 
-            // ── Flat body base ───────────────────────────────────────────────
-            // The body is a wide flat ellipse: 2:1 visual aspect ratio.
-            canvas.fill_ellipse(cloud.x, cloud.y, cloud.rx, cloud.ry_body, body_color);
-
-            // Thin shadow line on the bottom edge of the body.
+            // Flat body base — full width, shifted slightly down for a flat bottom.
             canvas.fill_ellipse(
                 cloud.x,
-                cloud.y + cloud.ry_body * 0.6,
-                cloud.rx * 0.85,
-                cloud.ry_body * 0.35,
+                cloud.y + cloud.ry_body * 0.10,
+                cloud.rx * 0.97,
+                cloud.ry_body,
+                body_color,
+            );
+            canvas.fill_ellipse(
+                cloud.x,
+                cloud.y,
+                cloud.rx * 0.93,
+                cloud.ry_body * 0.90,
+                body_color,
+            );
+
+            // Soft bottom shadow.
+            canvas.fill_ellipse(
+                cloud.x,
+                cloud.y + cloud.ry_body * 0.70,
+                cloud.rx * 0.75,
+                cloud.ry_body * 0.28,
                 shadow_color,
             );
 
-            // ── Rounded top puffs ────────────────────────────────────────────
-            // Each bump is a visually round ellipse (ry = br/2 → 1:1 visual).
+            // Large overlapping lobes form the puffy top.
             for &(bx, by, br) in &cloud.bumps {
-                let bump_ry = br / 2.0;
-                canvas.fill_ellipse(cloud.x + bx, cloud.y + by, br, bump_ry, body_color);
+                let lobe_ry = br / 2.0;
+                canvas.fill_ellipse(cloud.x + bx, cloud.y + by, br, lobe_ry, body_color);
+                canvas.fill_ellipse(
+                    cloud.x + bx - br * 0.10,
+                    cloud.y + by - lobe_ry * 0.20,
+                    br * 0.50,
+                    lobe_ry * 0.40,
+                    highlight_color,
+                );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CloudSystem;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn generated_cloud_has_classic_silhouette() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let cloud = CloudSystem::make_cloud(10.0, 120, 34, false, 0.12, &mut rng);
+        assert_eq!(cloud.bumps.len(), 5, "3 lobes + 2 puffs");
+        assert!(cloud.rx >= 4.5 && cloud.rx <= 12.0);
+        assert!(cloud.ry_body < cloud.rx / 5.0, "body should be flat");
+        for &(_bx, by, br) in &cloud.bumps {
+            let bump_top = cloud.y + by - br / 2.0;
+            assert!(bump_top >= 0.0, "lobe overflows top: {bump_top:.2}");
         }
     }
 }
