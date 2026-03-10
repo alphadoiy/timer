@@ -31,20 +31,22 @@ struct Leaf {
 }
 
 impl Leaf {
-    fn new(tw: u16, spawn_at_top: bool, rng: &mut impl Rng) -> Self {
+    fn new(tw: u16, th: u16, spawn_at_top: bool, rng: &mut impl Rng) -> Self {
         let x = rng.random::<f32>() * tw as f32;
         let y = if spawn_at_top {
-            -(rng.random::<f32>() * 5.0)
+            // Start just above the visible area
+            -(rng.random::<f32>() * 3.0)
         } else {
-            rng.random::<f32>() * tw as f32
+            // Scatter throughout the visible height so the scene looks pre-populated
+            rng.random::<f32>() * th as f32
         };
         Self {
             x,
             y,
-            fall_speed: 0.15 + rng.random::<f32>() * 0.2,
-            sway_speed: 0.05 + rng.random::<f32>() * 0.1,
+            fall_speed: 0.12 + rng.random::<f32>() * 0.15,
+            sway_speed: 0.04 + rng.random::<f32>() * 0.08,
             sway_phase: rng.random::<f32>() * std::f32::consts::TAU,
-            sway_amplitude: 0.5 + rng.random::<f32>() * 1.5,
+            sway_amplitude: 0.4 + rng.random::<f32>() * 1.2,
             color_idx: (rng.random::<u32>() % LEAF_COLORS_DARK.len() as u32) as usize,
         }
     }
@@ -55,7 +57,7 @@ impl Leaf {
         if self.sway_phase > std::f32::consts::TAU {
             self.sway_phase -= std::f32::consts::TAU;
         }
-        self.x += self.sway_phase.sin() * self.sway_amplitude * 0.1;
+        self.x += self.sway_phase.sin() * self.sway_amplitude * 0.08;
     }
 
     fn is_offscreen(&self, th: u16) -> bool {
@@ -74,16 +76,18 @@ pub struct FallingLeaves {
 impl FallingLeaves {
     pub fn new(tw: u16, th: u16) -> Self {
         let mut rng = rand::rng();
-        let initial = (tw / 10).max(5);
+        // Pre-scatter a handful of leaves that are already mid-fall.
+        let initial = (tw / 15).max(3) as usize;
         let cap = (tw / 8).max(10) as usize;
         let mut leaves = Vec::with_capacity(cap);
         for _ in 0..initial {
-            leaves.push(Leaf::new(tw, false, &mut rng));
+            // spawn_at_top = false → y spread across [0, th], not [0, tw]
+            leaves.push(Leaf::new(tw, th, false, &mut rng));
         }
         Self {
             leaves,
             spawn_counter: 0,
-            spawn_rate: 15,
+            spawn_rate: 18,
             terminal_width: tw,
             terminal_height: th,
         }
@@ -99,8 +103,8 @@ impl FallingLeaves {
         self.spawn_counter += 1;
         if self.spawn_counter >= self.spawn_rate {
             self.spawn_counter = 0;
-            if rng.random::<f32>() < 0.7 {
-                self.leaves.push(Leaf::new(tw, true, rng));
+            if rng.random::<f32>() < 0.65 {
+                self.leaves.push(Leaf::new(tw, th, true, rng));
             }
         }
         let max = (tw / 8).max(10) as usize;
@@ -114,8 +118,9 @@ impl FallingLeaves {
         for leaf in &self.leaves {
             let (r, g, b) = palette[leaf.color_idx % palette.len()];
             let color = Color::Rgb(r, g, b);
+            // Two-dot "leaf" shape
             canvas.plot_f(leaf.x, leaf.y, color);
-            canvas.plot_f(leaf.x + 0.3, leaf.y + 0.15, color);
+            canvas.plot_f(leaf.x + 0.5, leaf.y + 0.25, color);
         }
     }
 }
