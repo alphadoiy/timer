@@ -28,7 +28,10 @@ pub struct Cli {
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
     Clock,
-    Pomodoro,
+    Pomodoro {
+        #[arg(long, help = "Use colors suited for light terminal backgrounds")]
+        light_bg: bool,
+    },
     Music {
         #[arg(value_name = "PATH_OR_URL")]
         inputs: Vec<String>,
@@ -55,7 +58,7 @@ impl Cli {
     pub fn initial_mode(&self) -> ModeKind {
         match self.command {
             Some(Command::Clock) => ModeKind::Clock,
-            Some(Command::Pomodoro) => ModeKind::Pomodoro,
+            Some(Command::Pomodoro { .. }) => ModeKind::Pomodoro,
             Some(Command::Music { .. }) => ModeKind::Music,
             None => ModeKind::Clock,
         }
@@ -66,6 +69,10 @@ impl Cli {
             (Some(lat), Some(lon)) => Some((lat, lon)),
             _ => None,
         }
+    }
+
+    pub fn light_bg(&self) -> bool {
+        matches!(&self.command, Some(Command::Pomodoro { light_bg: true }))
     }
 
     pub fn music_inputs(&self) -> &[String] {

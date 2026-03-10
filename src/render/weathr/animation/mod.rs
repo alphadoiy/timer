@@ -15,9 +15,7 @@ pub mod stars;
 pub mod sunny;
 pub mod thunderstorm;
 
-use crate::render::weathr::TerminalRenderer;
 use crossterm::style::Color;
-use std::io;
 
 pub trait Animation {
     fn get_frame(&self, frame_number: usize) -> &[String];
@@ -40,17 +38,6 @@ impl AnimationController {
     pub fn next_frame<A: Animation>(&mut self, animation: &A) -> usize {
         self.current_frame = (self.current_frame + 1) % animation.frame_count();
         self.current_frame
-    }
-
-    pub fn render_frame<A: Animation>(
-        &self,
-        renderer: &mut TerminalRenderer,
-        animation: &A,
-        y_offset: u16,
-    ) -> io::Result<()> {
-        let frame = animation.get_frame(self.current_frame);
-        let color = animation.get_color();
-        renderer.render_centered_colored(frame, y_offset, color)
     }
 
     pub fn current_frame(&self) -> usize {

@@ -41,6 +41,7 @@ mod tests {
             music_queue_overlay: false,
             pose: SpritePose::default(),
             theme: Theme::default(),
+            dark_bg: true,
             system: SystemStats {
                 cpu_usage: 13.5,
                 memory_used_mib: 1024,
@@ -105,6 +106,7 @@ mod tests {
                 music_queue_overlay: false,
                 pose: SpritePose::default(),
                 theme: Theme::default(),
+                dark_bg: true,
                 system: SystemStats {
                     cpu_usage: 13.5,
                     memory_used_mib: 1024,

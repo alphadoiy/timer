@@ -1,13 +1,8 @@
-use crate::render::weathr::TerminalRenderer;
-use crossterm::style::Color;
-use std::io;
+use crate::render::weathr::BrailleWeatherCanvas;
+use ratatui::style::Color;
+use std::f32::consts::TAU;
 
 use super::Animation;
-
-const CORE_FG: Color = Color::Rgb { r: 255, g: 220, b: 80 };
-const CORE_FILL: Color = Color::Rgb { r: 255, g: 200, b: 40 };
-const RAY_FG: Color = Color::Rgb { r: 255, g: 200, b: 50 };
-const RAY_TIP_FG: Color = Color::Rgb { r: 255, g: 180, b: 60 };
 
 pub struct SunnyAnimation {
     frames: Vec<Vec<String>>,
@@ -15,83 +10,54 @@ pub struct SunnyAnimation {
 
 impl SunnyAnimation {
     pub fn new() -> Self {
-        let frames = vec![Self::create_frame_1(), Self::create_frame_2()];
-        Self { frames }
+        Self {
+            frames: vec![vec!["frame0".into()], vec!["frame1".into()]],
+        }
     }
 
-    fn create_frame_1() -> Vec<String> {
-        vec![
-            "      ;   :   ;".to_string(),
-            "   .   \\_,!,_/   ,".to_string(),
-            "    `.,'CCCCC`.,'".to_string(),
-            "     /CCCCCCCCC\\".to_string(),
-            "~ -- :CCCCCCCCC: -- ~".to_string(),
-            "     \\CCCCCCCCC/".to_string(),
-            "    ,'`._CCC_.'`.".to_string(),
-            "   '   / `!` \\   `".to_string(),
-            "      ;   :   ;".to_string(),
-        ]
-    }
-
-    fn create_frame_2() -> Vec<String> {
-        vec![
-            "      .   |   .".to_string(),
-            "   ;   \\_,|,_/   ;".to_string(),
-            "    `.,'CCCCC`.,'".to_string(),
-            "     /CCCCCCCCC\\".to_string(),
-            "~ -- |CCCCCCCCC| -- ~".to_string(),
-            "     \\CCCCCCCCC/".to_string(),
-            "    ,'`._CCC_.'`.".to_string(),
-            "   ;   / `|` \\   ;".to_string(),
-            "      .   |   .".to_string(),
-        ]
-    }
-
-    pub fn render_colored(
+    pub fn render_braille(
         &self,
-        renderer: &mut TerminalRenderer,
+        canvas: &mut BrailleWeatherCanvas,
         frame_number: usize,
-        y_offset: u16,
-    ) -> io::Result<()> {
-        let frame = &self.frames[frame_number % self.frames.len()];
-        let max_width = frame.iter().map(|l| l.len()).max().unwrap_or(0);
-        let (w, _) = renderer.size();
-        let start_col = if (w as usize) > max_width {
-            (w as usize - max_width) / 2
+        dark_bg: bool,
+    ) {
+        let w = canvas.cell_width() as f32;
+        let h = canvas.cell_height() as f32;
+        let cx = w * 0.5;
+        let cy = h * 0.25;
+        let core_r = 2.5;
+        let ray_len = 4.0;
+
+        let (core_color, ray_color, glow_color) = if dark_bg {
+            (
+                Color::Rgb(255, 220, 80),
+                Color::Rgb(255, 200, 50),
+                Color::Rgb(255, 180, 60),
+            )
         } else {
-            0
+            (
+                Color::Rgb(200, 150, 0),
+                Color::Rgb(180, 130, 0),
+                Color::Rgb(160, 110, 0),
+            )
         };
 
-        for (idx, line) in frame.iter().enumerate() {
-            let row = y_offset + idx as u16;
-            for (char_idx, ch) in line.chars().enumerate() {
-                if ch == ' ' {
-                    continue;
-                }
-                let col = start_col as u16 + char_idx as u16;
+        canvas.fill_circle(cx, cy, core_r, core_color);
+        canvas.fill_circle(cx, cy, core_r + 0.5, glow_color);
+        canvas.fill_circle(cx, cy, core_r - 0.5, core_color);
 
-                if ch == 'C' {
-                    renderer.render_char(col, row, '█', CORE_FILL)?;
-                } else {
-                    let color = classify_sun_char(ch, idx, frame.len());
-                    renderer.render_char(col, row, ch, color)?;
-                }
-            }
+        let ray_count = 12;
+        let phase = if frame_number.is_multiple_of(2) { 0.0 } else { TAU / (ray_count as f32 * 2.0) };
+        for i in 0..ray_count {
+            let theta = phase + (i as f32 / ray_count as f32) * TAU;
+            let inner_r = core_r + 0.8;
+            let outer_r = core_r + ray_len;
+            let x0 = cx + theta.cos() * inner_r;
+            let y0 = cy + theta.sin() * inner_r;
+            let x1 = cx + theta.cos() * outer_r;
+            let y1 = cy + theta.sin() * outer_r;
+            canvas.draw_line(x0, y0, x1, y1, ray_color);
         }
-        Ok(())
-    }
-}
-
-fn classify_sun_char(ch: char, row: usize, total_rows: usize) -> Color {
-    let center = total_rows / 2;
-    let dist = (row as i16 - center as i16).unsigned_abs() as usize;
-    match ch {
-        '!' | ',' | '.' | ';' | ':' | '|' => {
-            if dist >= 3 { RAY_TIP_FG } else { RAY_FG }
-        }
-        '~' | '-' => RAY_FG,
-        '/' | '\\' | '`' | '\'' | '_' => CORE_FG,
-        _ => RAY_FG,
     }
 }
 
@@ -99,13 +65,8 @@ impl Animation for SunnyAnimation {
     fn get_frame(&self, frame_number: usize) -> &[String] {
         &self.frames[frame_number % self.frames.len()]
     }
-
     fn frame_count(&self) -> usize {
         self.frames.len()
-    }
-
-    fn get_color(&self) -> Color {
-        Color::Yellow
     }
 }
 

@@ -1,34 +1,27 @@
-use crate::render::weathr::TerminalRenderer;
+use crate::render::weathr::BrailleWeatherCanvas;
 use crate::render::weathr::types::RainIntensity;
-use crossterm::style::Color;
 use rand::prelude::*;
-use std::collections::VecDeque;
-use std::io;
-
-const MAX_SPLASHES: usize = 100;
+use ratatui::style::Color;
 
 struct Raindrop {
     x: f32,
     y: f32,
     speed_y: f32,
     speed_x: f32,
-    character: char,
-    color: Color,
     z_index: u8,
 }
 
 #[derive(Clone, Copy)]
 struct Splash {
-    x: u16,
-    y: u16,
+    x: f32,
+    y: f32,
     timer: u8,
     max_timer: u8,
 }
 
 pub struct RaindropSystem {
     drops: Vec<Raindrop>,
-    splashes: VecDeque<Splash>,
-    new_splashes: VecDeque<Splash>,
+    splashes: Vec<Splash>,
     terminal_width: u16,
     terminal_height: u16,
     intensity: RainIntensity,
@@ -37,17 +30,15 @@ pub struct RaindropSystem {
 
 impl RaindropSystem {
     pub fn new(terminal_width: u16, terminal_height: u16, intensity: RainIntensity) -> Self {
-        let drops_capacity = match intensity {
+        let cap = match intensity {
             RainIntensity::Drizzle => (terminal_width / 4) as usize,
             RainIntensity::Light => (terminal_width / 2) as usize,
             RainIntensity::Heavy => terminal_width as usize,
             RainIntensity::Storm => (terminal_width as f32 * 1.5) as usize,
         };
-
         let mut system = Self {
-            drops: Vec::with_capacity(drops_capacity),
-            splashes: VecDeque::with_capacity(MAX_SPLASHES),
-            new_splashes: VecDeque::with_capacity(20),
+            drops: Vec::with_capacity(cap),
+            splashes: Vec::with_capacity(60),
             terminal_width,
             terminal_height,
             intensity,
@@ -63,191 +54,125 @@ impl RaindropSystem {
         self.set_intensity_with_dir(intensity, current_dir);
     }
 
-    pub fn set_intensity_with_dir(&mut self, intensity: RainIntensity, direction_multiplier: f32) {
+    fn set_intensity_with_dir(&mut self, intensity: RainIntensity, dir: f32) {
         self.intensity = intensity;
-        let base_wind = match intensity {
+        let base = match intensity {
             RainIntensity::Drizzle => 0.05,
             RainIntensity::Light => 0.1,
             RainIntensity::Heavy => 0.15,
             RainIntensity::Storm => 0.8,
         };
-        self.wind_x = base_wind * direction_multiplier;
+        self.wind_x = base * dir;
     }
 
     pub fn set_wind(&mut self, speed_kmh: f32, direction_deg: f32) {
-        let speed_factor = speed_kmh / 40.0;
-        let direction_rad = direction_deg.to_radians();
-        let x_component = -direction_rad.sin();
-        self.wind_x = speed_factor * x_component;
+        let factor = speed_kmh / 40.0;
+        let rad = direction_deg.to_radians();
+        self.wind_x = factor * (-rad.sin());
     }
 
     fn spawn_drop(&mut self, rng: &mut impl Rng) {
         let x = (rng.random::<u32>() % (self.terminal_width as u32 * 2)) as f32
             - (self.terminal_width as f32 * 0.5);
-        let z_index = if rng.random::<bool>() { 1 } else { 0 };
-
-        let (speed_y, chars, color) = match self.intensity {
-            RainIntensity::Drizzle => (
-                if z_index == 1 { 0.4 } else { 0.2 },
-                vec!['.', ','],
-                if z_index == 1 {
-                    Color::Cyan
-                } else {
-                    Color::DarkGrey
-                },
-            ),
-            RainIntensity::Light => (
-                if z_index == 1 { 0.7 } else { 0.4 },
-                vec!['|', ':', '.'],
-                if z_index == 1 {
-                    Color::White
-                } else {
-                    Color::DarkGrey
-                },
-            ),
-            RainIntensity::Heavy => (
-                if z_index == 1 { 0.9 } else { 0.6 }, // Slightly faster than Light
-                vec!['|', ':'],                       // Vertical density
-                if z_index == 1 {
-                    Color::Cyan
-                } else {
-                    Color::DarkGrey // Blue-ish background
-                },
-            ),
-            RainIntensity::Storm => (
-                if z_index == 1 { 1.8 } else { 1.2 },
-                // Use slant matching wind direction
-                if self.wind_x > 0.0 {
-                    vec!['\\']
-                } else {
-                    vec!['/']
-                },
-                if z_index == 1 {
-                    Color::White
-                } else {
-                    Color::DarkGrey
-                },
-            ),
+        let z = if rng.random::<bool>() { 1 } else { 0 };
+        let speed_y = match self.intensity {
+            RainIntensity::Drizzle => if z == 1 { 0.4 } else { 0.2 },
+            RainIntensity::Light => if z == 1 { 0.7 } else { 0.4 },
+            RainIntensity::Heavy => if z == 1 { 0.9 } else { 0.6 },
+            RainIntensity::Storm => if z == 1 { 1.8 } else { 1.2 },
         };
-
-        let char_idx = (rng.random::<u32>() as usize) % chars.len();
-
         self.drops.push(Raindrop {
             x,
             y: 0.0,
-            speed_y: speed_y + (rng.random::<f32>() * 0.2),
+            speed_y: speed_y + rng.random::<f32>() * 0.2,
             speed_x: self.wind_x + (rng.random::<f32>() * 0.1 - 0.05),
-            character: chars[char_idx],
-            color,
-            z_index,
+            z_index: z,
         });
     }
 
-    pub fn update(&mut self, terminal_width: u16, terminal_height: u16, rng: &mut impl Rng) {
-        self.terminal_width = terminal_width;
-        self.terminal_height = terminal_height;
-
-        let target_count = match self.intensity {
-            RainIntensity::Drizzle => (terminal_width / 4) as usize,
-            RainIntensity::Light => (terminal_width / 2) as usize,
-            RainIntensity::Heavy => terminal_width as usize,
-            RainIntensity::Storm => (terminal_width as f32 * 1.5) as usize,
+    pub fn update(&mut self, tw: u16, th: u16, rng: &mut impl Rng) {
+        self.terminal_width = tw;
+        self.terminal_height = th;
+        let target = match self.intensity {
+            RainIntensity::Drizzle => (tw / 4) as usize,
+            RainIntensity::Light => (tw / 2) as usize,
+            RainIntensity::Heavy => tw as usize,
+            RainIntensity::Storm => (tw as f32 * 1.5) as usize,
         };
-
-        if self.drops.len() < target_count {
-            let spawn_rate = match self.intensity {
+        if self.drops.len() < target {
+            let rate = match self.intensity {
                 RainIntensity::Drizzle => 1,
                 RainIntensity::Light => 2,
                 _ => 5,
             };
-            for _ in 0..spawn_rate {
+            for _ in 0..rate {
                 self.spawn_drop(rng);
             }
         }
-
-        // Update drops
-        let new_splashes = &mut self.new_splashes;
         let splash_chance = match self.intensity {
             RainIntensity::Drizzle => 0.1,
             RainIntensity::Light => 0.3,
             _ => 0.6,
         };
-
-        self.drops.retain_mut(|drop| {
-            drop.y += drop.speed_y;
-            drop.x += drop.speed_x;
-
-            // Hit ground?
-            if drop.y >= (terminal_height - 1) as f32 {
-                if drop.z_index == 1 && rng.random::<f32>() < splash_chance {
-                    new_splashes.push_back(Splash {
-                        x: drop.x as u16,
-                        y: terminal_height - 1,
+        let mut new_splashes = Vec::new();
+        self.drops.retain_mut(|d| {
+            d.y += d.speed_y;
+            d.x += d.speed_x;
+            if d.y >= (th - 1) as f32 {
+                if d.z_index == 1 && rng.random::<f32>() < splash_chance {
+                    new_splashes.push(Splash {
+                        x: d.x,
+                        y: (th - 1) as f32,
                         timer: 0,
                         max_timer: 3,
                     });
                 }
-                return false; // Remove drop
-            }
-
-            // Out of horizontal bounds
-            if drop.x < -10.0 || drop.x > (terminal_width as f32 + 10.0) {
                 return false;
             }
-
-            true
+            d.x > -10.0 && d.x < (tw as f32 + 10.0)
         });
-
-        self.splashes.append(&mut self.new_splashes);
-
-        while self.splashes.len() > MAX_SPLASHES {
-            self.splashes.pop_front();
+        self.splashes.extend(new_splashes);
+        self.splashes.retain_mut(|s| {
+            s.timer += 1;
+            s.timer < s.max_timer
+        });
+        if self.splashes.len() > 80 {
+            self.splashes.drain(..self.splashes.len() - 80);
         }
-
-        self.splashes.retain_mut(|splash| {
-            splash.timer += 1;
-            splash.timer < splash.max_timer
-        });
     }
 
-    pub fn render(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
-        // Render drops
+    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+        let (fg_near, fg_far) = if dark_bg {
+            (Color::Rgb(160, 210, 255), Color::Rgb(80, 100, 130))
+        } else {
+            (Color::Rgb(40, 80, 140), Color::Rgb(100, 120, 150))
+        };
         for drop in &self.drops {
-            let x = drop.x as i16;
-            let y = drop.y as i16;
-
-            if x >= 0 && x < self.terminal_width as i16 && y >= 0 && y < self.terminal_height as i16
-            {
-                let ch = if self.intensity == RainIntensity::Storm
-                    || self.intensity == RainIntensity::Heavy
-                {
-                    if drop.speed_x > 0.5 {
-                        '\\'
-                    } else if drop.speed_x < -0.5 {
-                        '/'
-                    } else {
-                        drop.character
-                    }
-                } else {
-                    drop.character
-                };
-                renderer.render_char(x as u16, y as u16, ch, drop.color)?;
-            }
+            let color = if drop.z_index == 1 { fg_near } else { fg_far };
+            let streak_len = match self.intensity {
+                RainIntensity::Drizzle => 0.3,
+                RainIntensity::Light => 0.6,
+                RainIntensity::Heavy => 0.9,
+                RainIntensity::Storm => 1.4,
+            };
+            let x0 = drop.x;
+            let y0 = drop.y - streak_len;
+            let x1 = drop.x + drop.speed_x * streak_len;
+            let y1 = drop.y;
+            canvas.draw_line(x0, y0, x1, y1, color);
         }
-
-        // Render splashes
+        let splash_color = if dark_bg {
+            Color::Rgb(180, 220, 255)
+        } else {
+            Color::Rgb(60, 100, 160)
+        };
         for splash in &self.splashes {
-            if splash.x < self.terminal_width && splash.y < self.terminal_height {
-                let ch = match splash.timer {
-                    0 => '.',
-                    1 => 'o',
-                    2 => 'O',
-                    _ => ' ',
-                };
-                renderer.render_char(splash.x, splash.y, ch, Color::White)?;
-            }
+            let r = match splash.timer {
+                0 => 0.2,
+                1 => 0.4,
+                _ => 0.6,
+            };
+            canvas.draw_circle(splash.x, splash.y, r, splash_color);
         }
-
-        Ok(())
     }
 }

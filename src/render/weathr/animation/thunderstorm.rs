@@ -1,11 +1,9 @@
-use crate::render::weathr::TerminalRenderer;
-use crossterm::style::Color;
+use crate::render::weathr::BrailleWeatherCanvas;
 use rand::prelude::*;
+use ratatui::style::Color;
 use std::collections::VecDeque;
-use std::io;
 
 const MAX_BOLTS: usize = 10;
-const FLASH_GLOW_COLOR: Color = Color::Rgb { r: 180, g: 170, b: 220 };
 
 #[derive(Clone, Copy, PartialEq)]
 enum LightningState {
@@ -18,7 +16,7 @@ enum LightningState {
 }
 
 struct LightningBolt {
-    segments: Vec<(u16, u16, char, bool)>,
+    segments: Vec<(f32, f32, f32, f32, bool)>,
     age: u8,
     max_age: u8,
 }
@@ -35,13 +33,13 @@ pub struct ThunderstormSystem {
 }
 
 impl ThunderstormSystem {
-    pub fn new(terminal_width: u16, terminal_height: u16) -> Self {
+    pub fn new(tw: u16, th: u16) -> Self {
         Self {
             bolts: VecDeque::with_capacity(MAX_BOLTS),
             state: LightningState::Idle,
             timer: 0,
-            terminal_width,
-            terminal_height,
+            terminal_width: tw,
+            terminal_height: th,
             flash_active: false,
             afterglow_active: false,
             next_strike_in: 60 + (rand::random::<u16>() % 120),
@@ -51,46 +49,32 @@ impl ThunderstormSystem {
     fn generate_bolt(&mut self, rng: &mut impl Rng) {
         let start_x = (rng.random::<u16>() % (self.terminal_width.saturating_sub(10))) + 5;
         let mut segments = Vec::new();
-        let mut x = start_x as i16;
-        let mut y: i16 = 2;
+        let mut x = start_x as f32;
+        let mut y: f32 = 2.0;
 
-        segments.push((x as u16, y as u16, '⚡', false));
-
-        while y < (self.terminal_height.saturating_sub(5)) as i16 {
-            let direction = (rng.random::<i8>() % 3) - 1;
-            x += direction as i16;
-            y += 1;
-
-            x = x.clamp(2, (self.terminal_width.saturating_sub(3)) as i16);
-
-            let ch = match direction {
-                -1 => '╱',
-                1 => '╲',
-                _ => '│',
-            };
-
-            segments.push((x as u16, y as u16, ch, false));
+        while y < (self.terminal_height.saturating_sub(5)) as f32 {
+            let direction = (rng.random::<i8>() % 3) as f32 - 1.0;
+            let nx = (x + direction).clamp(2.0, (self.terminal_width.saturating_sub(3)) as f32);
+            let ny = y + 1.0;
+            segments.push((x, y, nx, ny, false));
+            x = nx;
+            y = ny;
 
             if rng.random::<f32>() < 0.25 {
-                let branch_dir: i16 = if rng.random::<bool>() { -1 } else { 1 };
-                let branch_len = 2 + (rng.random::<u32>() % 5) as i16;
+                let branch_dir: f32 = if rng.random::<bool>() { -1.0 } else { 1.0 };
+                let branch_len = 2 + (rng.random::<u32>() % 5) as usize;
                 let mut bx = x + branch_dir;
-                let mut by = y + 1;
+                let mut by = y + 1.0;
                 for step in 0..branch_len {
-                    if by >= (self.terminal_height.saturating_sub(2)) as i16 || bx < 1 || bx >= (self.terminal_width.saturating_sub(1)) as i16 {
+                    if by >= (self.terminal_height.saturating_sub(2)) as f32 || bx < 1.0 || bx >= (self.terminal_width.saturating_sub(1)) as f32 {
                         break;
                     }
-                    let jitter = if rng.random::<bool>() { branch_dir } else { 0 };
-                    bx += jitter;
-                    bx = bx.clamp(1, (self.terminal_width.saturating_sub(2)) as i16);
-                    let bch = if jitter == branch_dir {
-                        if branch_dir < 0 { '╱' } else { '╲' }
-                    } else {
-                        '│'
-                    };
-                    segments.push((bx as u16, by as u16, bch, true));
-                    by += 1;
-
+                    let jitter = if rng.random::<bool>() { branch_dir } else { 0.0 };
+                    let nbx = (bx + jitter).clamp(1.0, (self.terminal_width.saturating_sub(2)) as f32);
+                    let nby = by + 1.0;
+                    segments.push((bx, by, nbx, nby, true));
+                    bx = nbx;
+                    by = nby;
                     if step > 2 && rng.random::<f32>() < 0.4 {
                         break;
                     }
@@ -103,16 +87,14 @@ impl ThunderstormSystem {
             age: 0,
             max_age: 12,
         });
-
         while self.bolts.len() > MAX_BOLTS {
             self.bolts.pop_front();
         }
     }
 
-    pub fn update(&mut self, terminal_width: u16, terminal_height: u16, rng: &mut impl Rng) {
-        self.terminal_width = terminal_width;
-        self.terminal_height = terminal_height;
-
+    pub fn update(&mut self, tw: u16, th: u16, rng: &mut impl Rng) {
+        self.terminal_width = tw;
+        self.terminal_height = th;
         match self.state {
             LightningState::Idle => {
                 self.flash_active = false;
@@ -160,54 +142,50 @@ impl ThunderstormSystem {
                     bolt.age += 1;
                     bolt.age < bolt.max_age
                 });
-
                 if self.bolts.is_empty() {
                     self.state = LightningState::Idle;
                     self.timer = 0;
-                    self.next_strike_in = 30 + (rng.random::<u16>() % 200);
+                    self.next_strike_in = 30 + (rand::random::<u16>() % 200);
                 }
             }
         }
     }
 
-    pub fn is_flashing(&self) -> bool {
-        self.flash_active
-    }
-
-    pub fn is_afterglow(&self) -> bool {
-        self.afterglow_active
-    }
-
-    pub fn render(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
+    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         for bolt in &self.bolts {
             let life_ratio = bolt.age as f32 / bolt.max_age as f32;
-
-            for &(sx, sy, ch, is_branch) in &bolt.segments {
+            for &(x0, y0, x1, y1, is_branch) in &bolt.segments {
                 let color = if self.flash_active {
-                    Color::White
+                    if dark_bg { Color::White } else { Color::Rgb(200, 200, 0) }
                 } else if self.afterglow_active {
-                    FLASH_GLOW_COLOR
+                    if dark_bg {
+                        Color::Rgb(180, 170, 220)
+                    } else {
+                        Color::Rgb(100, 90, 140)
+                    }
                 } else if is_branch {
                     if life_ratio > 0.5 {
-                        Color::DarkGrey
+                        if dark_bg { Color::DarkGray } else { Color::Gray }
+                    } else if dark_bg {
+                        Color::Rgb(120, 110, 180)
                     } else {
-                        Color::Rgb { r: 120, g: 110, b: 180 }
+                        Color::Rgb(80, 70, 130)
                     }
                 } else if life_ratio > 0.6 {
-                    Color::DarkYellow
-                } else {
+                    if dark_bg { Color::Rgb(180, 160, 0) } else { Color::Rgb(140, 120, 0) }
+                } else if dark_bg {
                     Color::Yellow
+                } else {
+                    Color::Rgb(180, 160, 0)
                 };
-                renderer.render_char(sx, sy, ch, color)?;
+                canvas.draw_line(x0, y0, x1, y1, color);
             }
         }
-
         if self.flash_active {
-            let y = self.terminal_height.saturating_sub(2);
-            for x in 0..self.terminal_width {
-                renderer.render_char(x, y, '·', Color::White)?;
-            }
+            let y = (self.terminal_height.saturating_sub(2)) as f32;
+            let w = self.terminal_width as f32;
+            let color = if dark_bg { Color::White } else { Color::Rgb(200, 200, 0) };
+            canvas.scatter_rect(0.0, y, w, 1.0, 0.3, color, 12345);
         }
-        Ok(())
     }
 }

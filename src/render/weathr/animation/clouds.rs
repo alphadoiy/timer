@@ -1,18 +1,16 @@
-use crate::render::weathr::TerminalRenderer;
-use crossterm::style::Color;
+use crate::render::weathr::BrailleWeatherCanvas;
 use rand::prelude::*;
-use std::io;
-use std::sync::OnceLock;
-
-static CLOUD_SHAPES: OnceLock<Vec<Vec<String>>> = OnceLock::new();
+use ratatui::style::Color;
 
 struct Cloud {
     x: f32,
     y: f32,
     speed: f32,
     wind_x: f32,
-    shape: Vec<String>,
-    color: Color,
+    rx: f32,
+    ry: f32,
+    bumps: Vec<(f32, f32, f32)>,
+    is_dark: bool,
 }
 
 pub struct CloudSystem {
@@ -27,6 +25,30 @@ pub struct CloudSystem {
 }
 
 impl CloudSystem {
+    pub fn new(tw: u16, th: u16) -> Self {
+        let mut rng = rand::rng();
+        let base_wind_x = 0.15;
+        let count = (tw / 30).max(1) as usize;
+        let segment = tw as f32 / count as f32;
+        let mut clouds = Vec::with_capacity(count);
+        for i in 0..count {
+            let x_min = (i as f32 * segment) as u16;
+            let x_max = ((i as f32 + 1.0) * segment) as u16;
+            let x = rng.random_range(x_min..=x_max) as f32;
+            clouds.push(Self::make_cloud(x, th, false, base_wind_x, &mut rng));
+        }
+        Self {
+            clouds,
+            terminal_width: tw,
+            terminal_height: th,
+            base_wind_x,
+            safe_left: 0.0,
+            safe_right: tw as f32,
+            safe_top: 0.0,
+            safe_bottom: th as f32,
+        }
+    }
+
     pub fn set_safe_area(&mut self, left: f32, right: f32, top: f32, bottom: f32) {
         self.safe_left = left.max(0.0);
         self.safe_right = right.min(self.terminal_width as f32).max(self.safe_left);
@@ -34,195 +56,95 @@ impl CloudSystem {
         self.safe_bottom = bottom.min(self.terminal_height as f32).max(self.safe_top);
     }
 
-    pub fn set_cloud_color(&mut self, is_clear: bool) {
-        let color = if is_clear {
-            Color::White
-        } else {
-            Color::DarkGrey
-        };
-
-        for cloud in &mut self.clouds {
-            cloud.color = color;
-        }
-    }
-
     pub fn set_wind(&mut self, speed_kmh: f32, direction_deg: f32) {
-        let direction_rad = direction_deg.to_radians();
-        self.base_wind_x = (speed_kmh / 50.0) * (-direction_rad.sin());
+        let rad = direction_deg.to_radians();
+        self.base_wind_x = (speed_kmh / 50.0) * (-rad.sin());
         let mut rng = rand::rng();
-        for cloud in &mut self.clouds {
-            cloud.wind_x = self.base_wind_x * (0.8 + rng.random::<f32>() * 0.4);
-        }
-    }
-}
-
-impl CloudSystem {
-    pub fn new(terminal_width: u16, terminal_height: u16) -> Self {
-        let mut rng = rand::rng();
-        let base_wind_x = 0.15;
-
-        // Add few initial clouds
-        let count = std::cmp::max(1, terminal_width / 30) as usize;
-        let segment = terminal_width as f32 / count as f32;
-
-        let mut clouds = Vec::with_capacity(count);
-
-        for i in 0..count {
-            let x_min = (i as f32 * segment) as u16;
-            let x_max = ((i as f32 + 1.0) * segment) as u16;
-            let x = rng.random_range(x_min..=x_max) as f32;
-            clouds.push(Self::create_random_cloud(
-                x,
-                terminal_height,
-                Color::White,
-                base_wind_x,
-                &mut rng,
-            ));
-        }
-
-        Self {
-            clouds,
-            terminal_width,
-            terminal_height,
-            base_wind_x,
-            safe_left: 0.0,
-            safe_right: terminal_width as f32,
-            safe_top: 0.0,
-            safe_bottom: terminal_height as f32,
+        for c in &mut self.clouds {
+            c.wind_x = self.base_wind_x * (0.8 + rng.random::<f32>() * 0.4);
         }
     }
 
-    fn create_random_cloud(
-        x: f32,
-        height: u16,
-        color: Color,
-        base_wind_x: f32,
-        rng: &mut impl Rng,
-    ) -> Cloud {
-        let shapes = CLOUD_SHAPES.get_or_init(Self::create_cloud_shapes);
-
-        let shape_idx = rng.random_range(0..shapes.len());
-        let shape = shapes[shape_idx].clone();
-
-        let y_range = (height / 3).max(1);
+    fn make_cloud(x: f32, th: u16, is_dark: bool, base_wind: f32, rng: &mut impl Rng) -> Cloud {
+        let y_range = (th / 3).max(1);
         let y = rng.random_range(0..y_range) as f32;
-        let speed = 0.02 + (rng.random::<f32>() * 0.03);
-        let wind_x = base_wind_x * (0.8 + rng.random::<f32>() * 0.4);
-
-        Cloud {
-            x,
-            y,
-            speed,
-            wind_x,
-            shape,
-            color,
+        let speed = 0.02 + rng.random::<f32>() * 0.03;
+        let wind_x = base_wind * (0.8 + rng.random::<f32>() * 0.4);
+        let rx = 3.0 + rng.random::<f32>() * 4.0;
+        let ry = 1.0 + rng.random::<f32>() * 1.5;
+        let bump_count = 2 + (rng.random::<u32>() % 3) as usize;
+        let mut bumps = Vec::with_capacity(bump_count);
+        for _ in 0..bump_count {
+            let bx = (rng.random::<f32>() - 0.5) * rx * 1.4;
+            let by = -ry * (0.3 + rng.random::<f32>() * 0.5);
+            let br = 1.0 + rng.random::<f32>() * 1.5;
+            bumps.push((bx, by, br));
         }
+        Cloud { x, y, speed, wind_x, rx, ry, bumps, is_dark }
     }
 
-    fn create_cloud_shapes() -> Vec<Vec<String>> {
-        let shapes = [
-            vec![
-                "   .--.   ".to_string(),
-                " .-(    ). ".to_string(),
-                "(___.__)_)".to_string(),
-            ],
-            vec![
-                "      _  _   ".to_string(),
-                "    ( `   )_ ".to_string(),
-                "   (    )    `)".to_string(),
-                "    \\_  (___  )".to_string(),
-            ],
-            vec![
-                "     .--.    ".to_string(),
-                "  .-(    ).  ".to_string(),
-                " (___.__)__) ".to_string(),
-            ],
-            vec![
-                "   _  _   ".to_string(),
-                "  ( `   )_ ".to_string(),
-                " (    )   `)".to_string(),
-                "  `--'     ".to_string(),
-            ],
-        ];
-
-        shapes.to_vec()
-    }
-
-    pub fn update(
-        &mut self,
-        terminal_width: u16,
-        terminal_height: u16,
-        is_clear: bool,
-        cloud_color: Color,
-        rng: &mut impl Rng,
-    ) {
-        self.terminal_width = terminal_width;
-        self.terminal_height = terminal_height;
-
-        for cloud in &mut self.clouds {
-            cloud.x += cloud.speed + cloud.wind_x;
-            let max_x = (self.safe_right - cloud_width(cloud)).max(self.safe_left);
-            cloud.x = cloud.x.clamp(self.safe_left, max_x);
-            let max_y = (self.safe_bottom - cloud_height(cloud)).max(self.safe_top);
-            cloud.y = cloud.y.clamp(self.safe_top, max_y);
+    pub fn update(&mut self, tw: u16, th: u16, is_clear: bool, rng: &mut impl Rng) {
+        self.terminal_width = tw;
+        self.terminal_height = th;
+        for c in &mut self.clouds {
+            c.x += c.speed + c.wind_x;
+            let max_x = (self.safe_right - c.rx * 2.0).max(self.safe_left);
+            c.x = c.x.clamp(self.safe_left, max_x);
+            let max_y = (self.safe_bottom - c.ry * 2.0).max(self.safe_top);
+            c.y = c.y.clamp(self.safe_top, max_y);
         }
-
         let max_clouds = if is_clear {
-            (terminal_width / 30) as usize
+            (tw / 30) as usize
         } else {
-            (terminal_width / 20) as usize
+            (tw / 20) as usize
         };
-
         let spawn_chance = if is_clear { 0.002 } else { 0.005 };
-
-        let min_gap = (terminal_width as f32 / 8.0).max(15.0);
+        let min_gap = (tw as f32 / 8.0).max(15.0);
         let too_close = self.clouds.iter().any(|c| c.x < self.safe_left + min_gap);
-
         if self.clouds.len() < max_clouds && !too_close && rng.random::<f32>() < spawn_chance {
-            let mut cloud = Self::create_random_cloud(
-                self.safe_left,
-                terminal_height,
-                cloud_color,
-                self.base_wind_x,
-                rng,
-            );
-            let max_y = (self.safe_bottom - cloud_height(&cloud)).max(self.safe_top);
+            let mut cloud =
+                Self::make_cloud(self.safe_left, th, !is_clear, self.base_wind_x, rng);
+            let max_y = (self.safe_bottom - cloud.ry * 2.0).max(self.safe_top);
             cloud.y = cloud.y.clamp(self.safe_top, max_y);
             self.clouds.push(cloud);
         }
     }
 
-    pub fn render(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
+    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         for cloud in &self.clouds {
-            for (i, line) in cloud.shape.iter().enumerate() {
-                let y = cloud.y as i16 + i as i16;
-                let x = cloud.x as i16;
-
-                if y < 0 || y >= self.terminal_height as i16 {
-                    continue;
+            let body_color = if cloud.is_dark {
+                Color::Rgb(100, 100, 110)
+            } else if dark_bg {
+                Color::Rgb(200, 200, 210)
+            } else {
+                Color::Rgb(80, 80, 90)
+            };
+            let edge_color = if cloud.is_dark {
+                if dark_bg {
+                    Color::Rgb(70, 70, 80)
+                } else {
+                    Color::Rgb(130, 130, 140)
                 }
+            } else if dark_bg {
+                Color::Rgb(160, 160, 175)
+            } else {
+                Color::Rgb(110, 110, 120)
+            };
 
-                let clip = ((-x).max(0)) as usize;
-                let visible = &line[clip.min(line.len())..];
-
-                if !visible.is_empty() {
-                    renderer.render_line_colored(
-                        x.max(0) as u16,
-                        y as u16,
-                        visible,
-                        cloud.color,
-                    )?;
-                }
+            canvas.fill_circle(cloud.x, cloud.y, cloud.rx.min(cloud.ry), body_color);
+            canvas.scatter_rect(
+                cloud.x - cloud.rx,
+                cloud.y - cloud.ry,
+                cloud.rx * 2.0,
+                cloud.ry * 2.0,
+                0.6,
+                body_color,
+                (cloud.x * 7.0) as u32,
+            );
+            for &(bx, by, br) in &cloud.bumps {
+                canvas.fill_circle(cloud.x + bx, cloud.y + by, br, body_color);
             }
+            canvas.draw_circle(cloud.x, cloud.y, cloud.rx.min(cloud.ry) + 0.3, edge_color);
         }
-        Ok(())
     }
-}
-
-fn cloud_width(cloud: &Cloud) -> f32 {
-    cloud.shape.iter().map(|l| l.len()).max().unwrap_or(0) as f32
-}
-
-fn cloud_height(cloud: &Cloud) -> f32 {
-    cloud.shape.len() as f32
 }

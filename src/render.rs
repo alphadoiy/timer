@@ -39,6 +39,7 @@ pub struct DashboardView<'a> {
     pub music_queue_overlay: bool,
     pub pose: SpritePose,
     pub theme: Theme,
+    pub dark_bg: bool,
     pub system: SystemStats,
 }
 
@@ -142,6 +143,7 @@ impl DashboardView<'_> {
                     self.pomodoro,
                     self.pose,
                     self.theme,
+                    self.dark_bg,
                 );
             }
             ModeKind::Music => self.render_music_visual_panel(inner, buf),
@@ -332,7 +334,7 @@ impl DashboardView<'_> {
                 "PAUSED"
             };
             format!(
-                " {mode} | CPU {:>5.1}% | MEM {:>4}/{:>4} MiB | {} | [Tab/←/→] switch  [Space] start/pause  [r] reset  [q] quit ",
+                " {mode} | CPU {:>5.1}% | MEM {:>4}/{:>4} MiB | {} | [Tab/←/→] switch  [Space] start/pause  [r] reset  [b] bg  [q] quit ",
                 self.system.cpu_usage,
                 self.system.memory_used_mib,
                 self.system.memory_total_mib,

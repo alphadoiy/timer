@@ -1,7 +1,24 @@
-use crate::render::weathr::TerminalRenderer;
-use crossterm::style::Color;
+use crate::render::weathr::BrailleWeatherCanvas;
 use rand::prelude::*;
-use std::io;
+use ratatui::style::Color;
+
+const LEAF_COLORS_DARK: [(u8, u8, u8); 6] = [
+    (255, 165, 0),
+    (218, 165, 32),
+    (184, 134, 11),
+    (205, 92, 92),
+    (160, 82, 45),
+    (139, 69, 19),
+];
+
+const LEAF_COLORS_LIGHT: [(u8, u8, u8); 6] = [
+    (180, 100, 0),
+    (150, 110, 0),
+    (120, 80, 0),
+    (150, 50, 50),
+    (110, 50, 20),
+    (90, 40, 10),
+];
 
 struct Leaf {
     x: f32,
@@ -10,112 +27,39 @@ struct Leaf {
     sway_speed: f32,
     sway_phase: f32,
     sway_amplitude: f32,
-    rotation: u8,
-    color: Color,
-    character: char,
+    color_idx: usize,
 }
 
 impl Leaf {
-    fn new(terminal_width: u16, spawn_at_top: bool, rng: &mut impl Rng) -> Self {
-        let x = rng.random::<f32>() * terminal_width as f32;
+    fn new(tw: u16, spawn_at_top: bool, rng: &mut impl Rng) -> Self {
+        let x = rng.random::<f32>() * tw as f32;
         let y = if spawn_at_top {
             -(rng.random::<f32>() * 5.0)
         } else {
-            rng.random::<f32>() * terminal_width as f32
+            rng.random::<f32>() * tw as f32
         };
-
-        let fall_speed = 0.15 + (rng.random::<f32>() * 0.2);
-        let sway_speed = 0.05 + (rng.random::<f32>() * 0.1);
-        let sway_phase = rng.random::<f32>() * std::f32::consts::PI * 2.0;
-        let sway_amplitude = 0.5 + (rng.random::<f32>() * 1.5);
-
-        let colors = [
-            Color::Rgb {
-                r: 255,
-                g: 165,
-                b: 0,
-            }, // Orange
-            Color::Rgb {
-                r: 218,
-                g: 165,
-                b: 32,
-            }, // Golden
-            Color::Rgb {
-                r: 184,
-                g: 134,
-                b: 11,
-            }, // Dark golden
-            Color::Rgb {
-                r: 205,
-                g: 92,
-                b: 92,
-            }, // Indian red
-            Color::Rgb {
-                r: 160,
-                g: 82,
-                b: 45,
-            }, // Sienna brown
-            Color::Rgb {
-                r: 139,
-                g: 69,
-                b: 19,
-            }, // Saddle brown
-        ];
-        let color = colors[(rng.random::<u32>() % colors.len() as u32) as usize];
-
-        let chars = ['*', '+', ',', '.', '~'];
-        let character = chars[(rng.random::<u32>() % chars.len() as u32) as usize];
-
         Self {
             x,
             y,
-            fall_speed,
-            sway_speed,
-            sway_phase,
-            sway_amplitude,
-            rotation: 0,
-            color,
-            character,
+            fall_speed: 0.15 + rng.random::<f32>() * 0.2,
+            sway_speed: 0.05 + rng.random::<f32>() * 0.1,
+            sway_phase: rng.random::<f32>() * std::f32::consts::TAU,
+            sway_amplitude: 0.5 + rng.random::<f32>() * 1.5,
+            color_idx: (rng.random::<u32>() % LEAF_COLORS_DARK.len() as u32) as usize,
         }
     }
 
     fn update(&mut self) {
         self.y += self.fall_speed;
-
         self.sway_phase += self.sway_speed;
-        if self.sway_phase > std::f32::consts::PI * 2.0 {
-            self.sway_phase -= std::f32::consts::PI * 2.0;
+        if self.sway_phase > std::f32::consts::TAU {
+            self.sway_phase -= std::f32::consts::TAU;
         }
-
-        let sway_offset = self.sway_phase.sin() * self.sway_amplitude;
-        self.x += sway_offset * 0.1;
-
-        self.rotation = ((self.sway_phase * 2.0).sin() * 4.0) as u8;
+        self.x += self.sway_phase.sin() * self.sway_amplitude * 0.1;
     }
 
-    fn is_offscreen(&self, terminal_height: u16) -> bool {
-        self.y > terminal_height as f32
-    }
-
-    fn get_character(&self) -> char {
-        match self.rotation % 4 {
-            0 => self.character,
-            1 => {
-                if self.character == '*' {
-                    '+'
-                } else {
-                    self.character
-                }
-            }
-            2 => {
-                if self.character == '+' {
-                    '*'
-                } else {
-                    self.character
-                }
-            }
-            _ => self.character,
-        }
+    fn is_offscreen(&self, th: u16) -> bool {
+        self.y > th as f32
     }
 }
 
@@ -128,60 +72,50 @@ pub struct FallingLeaves {
 }
 
 impl FallingLeaves {
-    pub fn new(terminal_width: u16, terminal_height: u16) -> Self {
+    pub fn new(tw: u16, th: u16) -> Self {
         let mut rng = rand::rng();
-        let initial_count = std::cmp::max(5, terminal_width / 10);
-
-        let max_capacity = std::cmp::max(10, terminal_width / 8) as usize;
-        let mut leaves = Vec::with_capacity(max_capacity);
-
-        for _ in 0..initial_count {
-            leaves.push(Leaf::new(terminal_width, false, &mut rng));
+        let initial = (tw / 10).max(5);
+        let cap = (tw / 8).max(10) as usize;
+        let mut leaves = Vec::with_capacity(cap);
+        for _ in 0..initial {
+            leaves.push(Leaf::new(tw, false, &mut rng));
         }
-
         Self {
             leaves,
             spawn_counter: 0,
             spawn_rate: 15,
-            terminal_width,
-            terminal_height,
+            terminal_width: tw,
+            terminal_height: th,
         }
     }
 
-    pub fn update(&mut self, terminal_width: u16, terminal_height: u16, rng: &mut impl Rng) {
-        self.terminal_width = terminal_width;
-        self.terminal_height = terminal_height;
-
+    pub fn update(&mut self, tw: u16, th: u16, rng: &mut impl Rng) {
+        self.terminal_width = tw;
+        self.terminal_height = th;
         for leaf in &mut self.leaves {
             leaf.update();
         }
-
-        self.leaves.retain(|l| !l.is_offscreen(terminal_height));
-
+        self.leaves.retain(|l| !l.is_offscreen(th));
         self.spawn_counter += 1;
         if self.spawn_counter >= self.spawn_rate {
             self.spawn_counter = 0;
             if rng.random::<f32>() < 0.7 {
-                self.leaves.push(Leaf::new(terminal_width, true, rng));
+                self.leaves.push(Leaf::new(tw, true, rng));
             }
         }
-
-        let max_leaves = std::cmp::max(10, terminal_width / 8) as usize;
-        if self.leaves.len() > max_leaves {
-            self.leaves.truncate(max_leaves);
+        let max = (tw / 8).max(10) as usize;
+        if self.leaves.len() > max {
+            self.leaves.truncate(max);
         }
     }
 
-    pub fn render(&self, renderer: &mut TerminalRenderer) -> io::Result<()> {
+    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+        let palette = if dark_bg { &LEAF_COLORS_DARK } else { &LEAF_COLORS_LIGHT };
         for leaf in &self.leaves {
-            let x = leaf.x as i16;
-            let y = leaf.y as i16;
-
-            if x >= 0 && y >= 0 && x < self.terminal_width as i16 && y < self.terminal_height as i16
-            {
-                renderer.render_char(x as u16, y as u16, leaf.get_character(), leaf.color)?;
-            }
+            let (r, g, b) = palette[leaf.color_idx % palette.len()];
+            let color = Color::Rgb(r, g, b);
+            canvas.plot_f(leaf.x, leaf.y, color);
+            canvas.plot_f(leaf.x + 0.3, leaf.y + 0.15, color);
         }
-        Ok(())
     }
 }
