@@ -163,6 +163,7 @@ mod tests {
             title: format!("track-{id}"),
             artist: "Unknown".to_string(),
             duration: Some(Duration::from_secs(60)),
+            is_live: false,
             provider: super::super::ProviderKind::Local,
             path_or_url: format!("/tmp/{id}.mp3"),
         }

@@ -335,9 +335,7 @@ impl DashboardView<'_> {
                     ),
                     Span::styled(
                         "█",
-                        Style::default()
-                            .fg(self.theme.accent)
-                            .bg(self.theme.shadow),
+                        Style::default().fg(self.theme.accent).bg(self.theme.shadow),
                     ),
                     Span::styled(
                         cursor_indicator,

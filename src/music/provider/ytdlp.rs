@@ -114,6 +114,7 @@ fn entry_to_track(entry: &YtDlpEntry) -> Option<TrackMeta> {
         title,
         artist,
         duration,
+        is_live: false,
         provider: ProviderKind::YtDlp,
         path_or_url: url.to_string(),
     })
@@ -130,10 +131,7 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].title, "Test Song");
         assert_eq!(tracks[0].artist, "Artist");
-        assert_eq!(
-            tracks[0].path_or_url,
-            "https://example.com/audio.m4a"
-        );
+        assert_eq!(tracks[0].path_or_url, "https://example.com/audio.m4a");
         assert!(matches!(tracks[0].provider, ProviderKind::YtDlp));
         assert!(tracks[0].duration.is_some());
         assert_eq!(tracks[0].duration.unwrap().as_secs(), 180);

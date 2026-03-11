@@ -120,4 +120,69 @@ mod tests {
             view.render(area, &mut buffer);
         }
     }
+
+    #[test]
+    fn live_music_seek_wave_keeps_braille_animation() {
+        let area = Rect::new(0, 0, 120, 36);
+        let mut buffer = Buffer::empty(area);
+        let snapshot = MusicSnapshot {
+            state: PlaybackState::Playing,
+            current_index: Some(0),
+            queue: vec![crate::music::TrackMeta {
+                id: 1,
+                title: "Code Radio".into(),
+                artist: "Radio".into(),
+                duration: None,
+                is_live: true,
+                provider: crate::music::ProviderKind::Radio,
+                path_or_url: "https://coderadio.example/radio.mp3".into(),
+            }],
+            visualizer_mode: VisualizerMode::Wave,
+            spectrum_bands: [0.55; crate::music::NUM_BANDS],
+            wave_samples: (0..2048)
+                .map(|i| ((i as f32) * 0.02).sin())
+                .collect::<Vec<_>>(),
+            position: std::time::Duration::from_secs(42),
+            visualizer_frame: 8,
+            ..MusicSnapshot::default()
+        };
+        let view = DashboardView {
+            mode: ModeKind::Music,
+            clock: &ClockSnapshot {
+                time_text: "12:34:56".into(),
+                date_text: "Sun, Mar 08".into(),
+                hour_angle: 0.0,
+                minute_angle: 0.5,
+                second_angle: 0.75,
+            },
+            pomodoro: PomodoroSnapshot {
+                phase: crate::modes::pomodoro::PhaseKind::Work,
+                remaining: std::time::Duration::from_secs(12 * 60),
+                progress: 0.5,
+                running: true,
+                completed: false,
+                cycle: 2,
+            },
+            music: &snapshot,
+            music_full_visualizer: false,
+            music_queue_overlay: false,
+            music_source_overlay: false,
+            command_line: &CommandLine::new(),
+            pose: SpritePose::default(),
+            theme: Theme::default(),
+            dark_bg: true,
+            system: SystemStats {
+                cpu_usage: 13.5,
+                memory_used_mib: 1024,
+                memory_total_mib: 8192,
+            },
+        };
+        view.render(area, &mut buffer);
+        let text: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("LIVE"));
+        assert!(
+            text.chars()
+                .any(|ch| ('\u{2800}'..='\u{28ff}').contains(&ch))
+        );
+    }
 }

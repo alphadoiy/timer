@@ -74,6 +74,7 @@ pub struct TrackMeta {
     pub title: String,
     pub artist: String,
     pub duration: Option<Duration>,
+    pub is_live: bool,
     pub provider: ProviderKind,
     pub path_or_url: String,
 }

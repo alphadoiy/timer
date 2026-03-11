@@ -47,29 +47,47 @@ impl DashboardView<'_> {
             .music
             .current_index
             .and_then(|idx| self.music.queue.get(idx));
-        let track_title = current.map(|t| t.title.as_str()).unwrap_or("No track loaded");
+        let track_title = current
+            .map(|t| t.title.as_str())
+            .unwrap_or("No track loaded");
         let artist = current.map(|t| t.artist.as_str()).unwrap_or("Unknown");
-        let icon = current
-            .map(|t| t.provider.icon())
-            .unwrap_or("♫");
+        let icon = current.map(|t| t.provider.icon()).unwrap_or("♫");
         let provider_label = current
-            .map(|t| t.provider.label())
-            .unwrap_or("Local");
+            .map(|t| {
+                if t.is_live {
+                    format!("{} LIVE", t.provider.label())
+                } else {
+                    t.provider.label().to_string()
+                }
+            })
+            .unwrap_or_else(|| "Local".to_string());
 
         let line1 = Line::from(vec![
             Span::styled(format!("{icon} "), Style::default().fg(Color::LightYellow)),
             Span::styled(track_title, Style::default().fg(Color::LightYellow)),
         ]);
         let line2 = Line::from(vec![
-            Span::styled(format!("  {artist}"), Style::default().fg(self.theme.subtext)),
-            Span::styled(format!("  [{provider_label}]"), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("  {artist}"),
+                Style::default().fg(self.theme.subtext),
+            ),
+            Span::styled(
+                format!("  [{provider_label}]"),
+                Style::default().fg(Color::DarkGray),
+            ),
         ]);
         Paragraph::new(vec![line1, line2]).render(area, buf);
     }
 
     fn render_cliamp_time_status(&self, area: Rect, buf: &mut Buffer) {
         let time = music_ui::duration_text(self.music.position, self.music.duration);
+        let is_live = self
+            .music
+            .current_index
+            .and_then(|idx| self.music.queue.get(idx))
+            .is_some_and(|track| track.is_live);
         let status = match self.music.state {
+            crate::music::PlaybackState::Playing if is_live => "◉ Live",
             crate::music::PlaybackState::Playing => "▶ Playing",
             crate::music::PlaybackState::Paused => "⏸ Paused",
             crate::music::PlaybackState::Buffering => "◌ Buffering",
@@ -362,15 +380,31 @@ impl DashboardView<'_> {
                 let label = source.kind.label();
                 lines.push(Line::from(vec![
                     Span::styled(format!(" {icon} "), Style::default().fg(Color::LightYellow)),
-                    Span::styled(format!("{label:<15} "), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("{} tracks", source.count), Style::default().fg(self.theme.subtext)),
+                    Span::styled(
+                        format!("{label:<15} "),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{} tracks", source.count),
+                        Style::default().fg(self.theme.subtext),
+                    ),
                 ]));
             }
             lines.push(Line::from(""));
             lines.push(Line::from(vec![
                 Span::styled(" ∑ ", Style::default().fg(Color::LightCyan)),
-                Span::styled(format!("{:<15} ", "Total"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("{total} tracks"), Style::default().fg(Color::LightGreen)),
+                Span::styled(
+                    format!("{:<15} ", "Total"),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{total} tracks"),
+                    Style::default().fg(Color::LightGreen),
+                ),
             ]));
         }
 

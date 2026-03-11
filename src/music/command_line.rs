@@ -279,7 +279,9 @@ mod tests {
     #[test]
     fn parse_add_command() {
         let action = parse_command("add https://example.com/stream");
-        assert!(matches!(action, CommandAction::AddUrl(url) if url == "https://example.com/stream"));
+        assert!(
+            matches!(action, CommandAction::AddUrl(url) if url == "https://example.com/stream")
+        );
     }
 
     #[test]
@@ -291,7 +293,9 @@ mod tests {
     #[test]
     fn parse_load_command() {
         let action = parse_command("load https://example.com/podcast.xml");
-        assert!(matches!(action, CommandAction::LoadUrl(url) if url == "https://example.com/podcast.xml"));
+        assert!(
+            matches!(action, CommandAction::LoadUrl(url) if url == "https://example.com/podcast.xml")
+        );
     }
 
     #[test]

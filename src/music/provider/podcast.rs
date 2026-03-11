@@ -53,8 +53,7 @@ fn parse_rss(xml: &str) -> Result<Vec<TrackMeta>> {
                     }
                     "enclosure" | "link" if in_item => {
                         for attr in e.attributes().flatten() {
-                            let key = std::str::from_utf8(attr.key.as_ref())
-                                .unwrap_or_default();
+                            let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or_default();
                             if (local == "enclosure" && key == "url")
                                 || (local == "link" && key == "href")
                             {
@@ -74,8 +73,7 @@ fn parse_rss(xml: &str) -> Result<Vec<TrackMeta>> {
                 let local = local_name(&name_bytes);
                 if (local == "enclosure" || local == "link") && in_item {
                     for attr in e.attributes().flatten() {
-                        let key =
-                            std::str::from_utf8(attr.key.as_ref()).unwrap_or_default();
+                        let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or_default();
                         if (local == "enclosure" && key == "url")
                             || (local == "link" && key == "href")
                         {
@@ -91,7 +89,10 @@ fn parse_rss(xml: &str) -> Result<Vec<TrackMeta>> {
                 let text = e.unescape().unwrap_or_default().to_string();
                 if in_item && current_tag == "title" && item_title.is_empty() {
                     item_title = text;
-                } else if in_channel && !in_item && current_tag == "title" && channel_title.is_empty()
+                } else if in_channel
+                    && !in_item
+                    && current_tag == "title"
+                    && channel_title.is_empty()
                 {
                     channel_title = text;
                 }
@@ -114,6 +115,7 @@ fn parse_rss(xml: &str) -> Result<Vec<TrackMeta>> {
                                 channel_title.clone()
                             },
                             duration: None,
+                            is_live: false,
                             provider: ProviderKind::Podcast,
                             path_or_url: item_url.clone(),
                         });

@@ -20,7 +20,7 @@ use symphonia::{
 use super::{
     MusicCommand, MusicSnapshot, PlaybackState, ProviderKind, RepeatMode, SourceInfo, TrackMeta,
     VisualizerMode,
-    provider::open_reader,
+    provider::{ReaderCapability, open_reader},
     queue::TrackQueue,
     visualizer::{AudioTap, NUM_BANDS, SpectrumAnalyzer, TapSource},
 };
@@ -89,6 +89,14 @@ impl MusicEngine {
 
     pub fn queue_len(&self) -> usize {
         self.queue.tracks().len()
+    }
+
+    pub fn current_track_is_seekable(&self) -> bool {
+        self.queue.current().is_some_and(|track| !track.is_live)
+    }
+
+    pub fn current_track_is_live(&self) -> bool {
+        self.queue.current().is_some_and(|track| track.is_live)
     }
 
     pub fn select_and_play(&mut self, index: usize) {
@@ -296,6 +304,9 @@ impl MusicEngine {
         let Some(current) = self.queue.current().cloned() else {
             return Ok(());
         };
+        if current.is_live {
+            return Ok(());
+        }
         // Disable seeking for streaming providers without known duration
         if !matches!(current.provider, ProviderKind::Local) && self.current_duration.is_none() {
             return Ok(());
@@ -374,15 +385,17 @@ impl MusicEngine {
             .context("audio output handle is missing")?;
 
         let sink = Sink::try_new(handle).context("failed to create audio sink")?;
-        let reader = open_reader(&track)?;
-        let decoder = Decoder::new(BufReader::new(reader)).context("failed to decode track")?;
+        let source = open_reader(&track)?;
+        let source_capability = source.capability();
+        let decoder =
+            Decoder::new(BufReader::new(source.into_reader())).context("failed to decode track")?;
         self.sample_rate_hz = decoder.sample_rate() as f32;
         let channels = decoder.channels();
         let total = decoder
             .total_duration()
             .or(known_duration_hint)
             .or(track.duration)
-            .or_else(|| Self::probe_duration_fallback(&track));
+            .or_else(|| Self::probe_duration_fallback(&track, source_capability));
         let tapped = TapSource::new(decoder.convert_samples(), Arc::clone(&self.tap), channels);
 
         if start_at > Duration::ZERO {
@@ -404,8 +417,15 @@ impl MusicEngine {
         Ok(())
     }
 
-    fn probe_duration_fallback(track: &TrackMeta) -> Option<Duration> {
-        let reader = open_reader(track).ok()?;
+    fn probe_duration_fallback(
+        track: &TrackMeta,
+        source_capability: ReaderCapability,
+    ) -> Option<Duration> {
+        if !Self::should_probe_duration(track, source_capability) {
+            return None;
+        }
+
+        let reader = open_reader(track).ok()?.into_reader();
         let mut hint = Hint::new();
         if let Some(ext) = std::path::Path::new(&track.path_or_url)
             .extension()
@@ -431,6 +451,10 @@ impl MusicEngine {
         let params = &track.codec_params;
         let (frames, sample_rate) = (params.n_frames?, params.sample_rate?);
         Some(Duration::from_secs_f64(frames as f64 / sample_rate as f64))
+    }
+
+    fn should_probe_duration(track: &TrackMeta, source_capability: ReaderCapability) -> bool {
+        !track.is_live && source_capability == ReaderCapability::Seekable
     }
 
     fn set_volume(&mut self, volume: u8) {
@@ -550,6 +574,7 @@ mod tests {
                 title: "Local 1".into(),
                 artist: "A".into(),
                 duration: None,
+                is_live: false,
                 provider: ProviderKind::Local,
                 path_or_url: "/tmp/1".into(),
             },
@@ -558,6 +583,7 @@ mod tests {
                 title: "Local 2".into(),
                 artist: "B".into(),
                 duration: None,
+                is_live: false,
                 provider: ProviderKind::Local,
                 path_or_url: "/tmp/2".into(),
             },
@@ -566,6 +592,7 @@ mod tests {
                 title: "Radio 1".into(),
                 artist: "C".into(),
                 duration: None,
+                is_live: true,
                 provider: ProviderKind::Radio,
                 path_or_url: "http://radio".into(),
             },
@@ -575,12 +602,53 @@ mod tests {
         let summary = engine.source_summary();
 
         assert_eq!(summary.len(), 2);
-        
+
         // They should be sorted by label: "Local", then "Radio"
         assert_eq!(summary[0].kind, ProviderKind::Local);
         assert_eq!(summary[0].count, 2);
-        
+
         assert_eq!(summary[1].kind, ProviderKind::Radio);
         assert_eq!(summary[1].count, 1);
+    }
+
+    #[test]
+    fn live_track_seek_is_noop() {
+        let mut queue = TrackQueue::new(false, RepeatMode::Off);
+        queue.load(vec![TrackMeta {
+            id: 7,
+            title: "Code Radio".into(),
+            artist: "Radio".into(),
+            duration: None,
+            is_live: true,
+            provider: ProviderKind::Radio,
+            path_or_url: "https://coderadio.example/radio.mp3".into(),
+        }]);
+        let mut engine = MusicEngine::new(queue, 80);
+
+        assert!(engine.current_track_is_live());
+        assert!(!engine.current_track_is_seekable());
+        assert!(engine.seek(15).is_ok());
+    }
+
+    #[test]
+    fn live_track_skips_duration_probe() {
+        let live_track = TrackMeta {
+            id: 8,
+            title: "Live".into(),
+            artist: "Radio".into(),
+            duration: None,
+            is_live: true,
+            provider: ProviderKind::Radio,
+            path_or_url: "https://example.com/live.mp3".into(),
+        };
+
+        assert!(!MusicEngine::should_probe_duration(
+            &live_track,
+            ReaderCapability::Streaming,
+        ));
+        assert!(!MusicEngine::should_probe_duration(
+            &live_track,
+            ReaderCapability::Seekable,
+        ));
     }
 }
