@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result};
@@ -5,6 +6,9 @@ use anyhow::{Context, Result};
 use super::super::{ProviderKind, TrackMeta};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(3_000_000);
+const CODE_RADIO_NAME: &str = "freeCodeCamp Code Radio";
+const CODE_RADIO_URL: &str =
+    "https://coderadio-admin-v2.freecodecamp.org/listen/coderadio/radio.mp3";
 
 fn next_id() -> u64 {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
@@ -40,7 +44,6 @@ fn parse_m3u(content: &str) -> Vec<TrackMeta> {
             continue;
         }
         if let Some(rest) = line.strip_prefix("#EXTINF:") {
-            // Format: #EXTINF:<duration>,<title>
             if let Some((_dur, title)) = rest.split_once(',') {
                 pending_title = Some(title.trim().to_string());
             }
@@ -49,18 +52,10 @@ fn parse_m3u(content: &str) -> Vec<TrackMeta> {
         if line.starts_with('#') {
             continue;
         }
-        // This is a URL or path line
         let title = pending_title
             .take()
             .unwrap_or_else(|| extract_name_from_url(line));
-        tracks.push(TrackMeta {
-            id: next_id(),
-            title,
-            artist: "Radio".to_string(),
-            duration: None,
-            provider: ProviderKind::Radio,
-            path_or_url: line.to_string(),
-        });
+        tracks.push(new_station_track(title, line.to_string()));
     }
 
     tracks
@@ -95,14 +90,7 @@ fn parse_pls(content: &str) -> Vec<TrackMeta> {
             .find(|(n, _)| n == num)
             .map(|(_, t)| t.clone())
             .unwrap_or_else(|| extract_name_from_url(url));
-        tracks.push(TrackMeta {
-            id: next_id(),
-            title,
-            artist: "Radio".to_string(),
-            duration: None,
-            provider: ProviderKind::Radio,
-            path_or_url: url.clone(),
-        });
+        tracks.push(new_station_track(title, url.clone()));
     }
     tracks
 }
@@ -117,23 +105,20 @@ fn extract_name_from_url(url: &str) -> String {
         .to_string()
 }
 
-/// Load custom radio stations from `~/.config/timer/radios.toml`.
 pub fn load_radio_stations() -> Vec<TrackMeta> {
-    let entries = read_station_entries();
-    entries
+    read_station_entries()
         .into_iter()
-        .map(|entry| TrackMeta {
-            id: next_id(),
-            title: entry.name,
-            artist: "Radio".to_string(),
-            duration: None,
-            provider: ProviderKind::Radio,
-            path_or_url: entry.url,
-        })
+        .map(|entry| new_station_track(entry.name, entry.url))
         .collect()
 }
 
-/// List saved station names and URLs (for `:station list`).
+pub fn load_radio_stations_with_default() -> Vec<TrackMeta> {
+    merged_station_entries(read_station_entries())
+        .into_iter()
+        .map(|entry| new_station_track(entry.name, entry.url))
+        .collect()
+}
+
 pub fn list_station_names() -> Vec<(String, String)> {
     read_station_entries()
         .into_iter()
@@ -141,7 +126,6 @@ pub fn list_station_names() -> Vec<(String, String)> {
         .collect()
 }
 
-/// Add a station to `radios.toml`. Creates the file/directory if needed.
 pub fn save_station(name: &str, url: &str) -> Result<()> {
     let path = super::super::config::radios_path();
     if let Some(parent) = path.parent() {
@@ -151,8 +135,8 @@ pub fn save_station(name: &str, url: &str) -> Result<()> {
 
     let mut entries = read_station_entries();
 
-    // Overwrite if name already exists
-    if let Some(existing) = entries.iter_mut().find(|e| e.name == name) {
+    if let Some(existing) = entries.iter_mut().find(|e| e.name == name || e.url == url) {
+        existing.name = name.to_string();
         existing.url = url.to_string();
     } else {
         entries.push(RadioEntry {
@@ -164,7 +148,6 @@ pub fn save_station(name: &str, url: &str) -> Result<()> {
     write_station_entries(&path, &entries)
 }
 
-/// Remove a station from `radios.toml` by name. Returns true if found.
 pub fn remove_station(name: &str) -> Result<bool> {
     let path = super::super::config::radios_path();
     let mut entries = read_station_entries();
@@ -177,7 +160,7 @@ pub fn remove_station(name: &str) -> Result<bool> {
     Ok(true)
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 struct RadioEntry {
     name: String,
     url: String,
@@ -194,20 +177,60 @@ fn read_station_entries() -> Vec<RadioEntry> {
     let Ok(content) = std::fs::read_to_string(&path) else {
         return Vec::new();
     };
-    let file: RadioFile = toml::from_str(&content).unwrap_or(RadioFile {
+    parse_station_entries(&content)
+}
+
+fn parse_station_entries(content: &str) -> Vec<RadioEntry> {
+    let file: RadioFile = toml::from_str(content).unwrap_or(RadioFile {
         station: Vec::new(),
     });
     file.station
 }
 
-fn write_station_entries(path: &std::path::Path, entries: &[RadioEntry]) -> Result<()> {
+fn write_station_entries(path: &Path, entries: &[RadioEntry]) -> Result<()> {
     let file = RadioFile {
         station: entries.to_vec(),
     };
     let content = toml::to_string_pretty(&file).context("failed to serialize radios.toml")?;
-    std::fs::write(path, content)
-        .with_context(|| format!("failed to write {}", path.display()))?;
+    std::fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())
+}
+
+fn merged_station_entries(user_entries: Vec<RadioEntry>) -> Vec<RadioEntry> {
+    let mut merged = default_station_entries();
+
+    for user in user_entries {
+        if let Some(existing) = merged.iter_mut().find(|entry| entry.url == user.url) {
+            *existing = user;
+            continue;
+        }
+        if let Some(existing) = merged.iter_mut().find(|entry| entry.name == user.name) {
+            *existing = user;
+            continue;
+        }
+        merged.push(user);
+    }
+
+    merged
+}
+
+fn default_station_entries() -> Vec<RadioEntry> {
+    vec![RadioEntry {
+        name: CODE_RADIO_NAME.to_string(),
+        url: CODE_RADIO_URL.to_string(),
+    }]
+}
+
+fn new_station_track(title: String, url: String) -> TrackMeta {
+    TrackMeta {
+        id: next_id(),
+        title,
+        artist: "Radio".to_string(),
+        duration: None,
+        is_live: true,
+        provider: ProviderKind::Radio,
+        path_or_url: url,
+    }
 }
 
 #[cfg(test)]
@@ -222,6 +245,7 @@ mod tests {
         assert_eq!(tracks[0].title, "Jazz FM");
         assert_eq!(tracks[0].path_or_url, "https://jazz.example.com/stream");
         assert_eq!(tracks[1].title, "Lo-fi Beats");
+        assert!(tracks[0].is_live);
         assert!(matches!(tracks[0].provider, ProviderKind::Radio));
     }
 
@@ -240,5 +264,43 @@ mod tests {
         let tracks = parse_m3u(m3u);
         assert_eq!(tracks.len(), 2);
         assert_eq!(tracks[0].title, "stream1");
+    }
+
+    #[test]
+    fn explicit_radio_load_includes_default_code_radio() {
+        let stations = merged_station_entries(Vec::new());
+        assert_eq!(stations.len(), 1);
+        assert_eq!(stations[0].name, CODE_RADIO_NAME);
+        assert_eq!(stations[0].url, CODE_RADIO_URL);
+    }
+
+    #[test]
+    fn load_radio_stations_appends_user_entries() {
+        let merged = merged_station_entries(vec![RadioEntry {
+            name: "Jazz FM".into(),
+            url: "https://jazz.example.com/live".into(),
+        }]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].name, CODE_RADIO_NAME);
+        assert_eq!(merged[1].name, "Jazz FM");
+    }
+
+    #[test]
+    fn user_entry_replaces_default_on_same_url() {
+        let merged = merged_station_entries(vec![RadioEntry {
+            name: "My Code Radio".into(),
+            url: CODE_RADIO_URL.into(),
+        }]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].name, "My Code Radio");
+    }
+
+    #[test]
+    fn saved_station_list_excludes_default_code_radio() {
+        let listed = parse_station_entries("")
+            .into_iter()
+            .map(|entry| (entry.name, entry.url))
+            .collect::<Vec<_>>();
+        assert!(listed.is_empty());
     }
 }

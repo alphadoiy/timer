@@ -246,7 +246,8 @@ impl App {
     fn execute_command(&mut self, action: CommandAction) {
         match action {
             CommandAction::None => {
-                self.command_line.show_message("Unknown command. Type :help for usage.");
+                self.command_line
+                    .show_message("Unknown command. Type :help for usage.");
             }
             CommandAction::AddUrl(url) => {
                 self.music.dispatch(MusicCommand::LoadUrl(url.clone()));
@@ -269,7 +270,7 @@ impl App {
                 }
             }
             CommandAction::LoadRadio => {
-                let stations = crate::music::provider::radio::load_radio_stations();
+                let stations = crate::music::provider::radio::load_radio_stations_with_default();
                 let count = stations.len();
                 if count > 0 {
                     self.music.load(stations);
@@ -288,10 +289,14 @@ impl App {
             }
             CommandAction::SetVolume(vol) => {
                 self.music.dispatch(MusicCommand::SetVolume(vol));
-                self.command_line
-                    .show_message(format!("Volume: {vol}%"));
+                self.command_line.show_message(format!("Volume: {vol}%"));
             }
             CommandAction::Seek(secs) => {
+                if self.music.current_track_is_live() {
+                    self.command_line
+                        .show_message("Live stream is not seekable");
+                    return;
+                }
                 self.music.dispatch(MusicCommand::Seek(secs));
                 let direction = if secs >= 0 { "→" } else { "←" };
                 self.command_line

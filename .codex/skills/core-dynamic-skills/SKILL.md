@@ -1,5 +1,6 @@
 ---
 name: core-dynamic-skills
+description: Internal command-only skill for syncing, cleaning, and updating crate-specific dynamic skills.
 # Command-based tool - no description to prevent auto-triggering
 # Triggered by: /sync-crate-skills, /clean-crate-skills, /update-crate-skill
 argument-hint: "[--force] | <crate_name>"

@@ -1,5 +1,6 @@
 ---
 name: core-agent-browser
+description: Internal reference skill for agent-browser CLI automation, navigation, and page interaction patterns.
 # Internal tool - no description to prevent auto-triggering
 # Used by: rust-learner, docs-researcher, crate-researcher agents
 ---

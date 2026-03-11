@@ -1,5 +1,6 @@
 ---
 name: core-fix-skill-docs
+description: Internal command-only skill for checking and repairing missing documentation references in generated skills.
 # Internal maintenance tool - no description to prevent auto-triggering
 # Triggered by: /fix-skill-docs command
 argument-hint: "[crate_name] [--check-only]"

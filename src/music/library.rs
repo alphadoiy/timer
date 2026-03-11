@@ -5,14 +5,17 @@ use std::{
 
 use walkdir::WalkDir;
 
-use super::{InputRef, ProviderKind, TrackMeta};
 use super::provider::{podcast, radio, ytdlp};
+use super::{InputRef, ProviderKind, TrackMeta};
 
 static NEXT_TRACK_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Classify raw CLI inputs into typed `InputRef` variants.
 pub fn parse_inputs(raw_inputs: &[String]) -> Vec<InputRef> {
-    raw_inputs.iter().map(|input| classify_input(input)).collect()
+    raw_inputs
+        .iter()
+        .map(|input| classify_input(input))
+        .collect()
 }
 
 fn classify_input(input: &str) -> InputRef {
@@ -95,6 +98,7 @@ pub fn build_tracks(inputs: &[InputRef]) -> Vec<TrackMeta> {
                         title: format!("⚠ Podcast error: {err:#}"),
                         artist: "Error".to_string(),
                         duration: None,
+                        is_live: false,
                         provider: ProviderKind::Podcast,
                         path_or_url: feed_url.clone(),
                     });
@@ -108,6 +112,7 @@ pub fn build_tracks(inputs: &[InputRef]) -> Vec<TrackMeta> {
                         title: format!("⚠ yt-dlp error: {err:#}"),
                         artist: "Error".to_string(),
                         duration: None,
+                        is_live: false,
                         provider: ProviderKind::YtDlp,
                         path_or_url: url.clone(),
                     });
@@ -121,6 +126,7 @@ pub fn build_tracks(inputs: &[InputRef]) -> Vec<TrackMeta> {
                         title: format!("⚠ Radio error: {err:#}"),
                         artist: "Error".to_string(),
                         duration: None,
+                        is_live: false,
                         provider: ProviderKind::Radio,
                         path_or_url: url_or_path.clone(),
                     });
@@ -153,6 +159,7 @@ fn new_file_track(path: &Path) -> TrackMeta {
         title,
         artist: "Local".to_string(),
         duration: None,
+        is_live: false,
         provider: ProviderKind::Local,
         path_or_url: path.to_string_lossy().to_string(),
     }
@@ -164,6 +171,7 @@ fn new_url_track(url: &str) -> TrackMeta {
         title: url.to_string(),
         artist: "Stream".to_string(),
         duration: None,
+        is_live: false,
         provider: ProviderKind::HttpStream,
         path_or_url: url.to_string(),
     }
@@ -241,5 +249,12 @@ mod tests {
     fn classify_local_playlist() {
         let input = classify_input("/home/user/stations.m3u");
         assert!(matches!(input, InputRef::Radio(_)));
+    }
+
+    #[test]
+    fn explicit_radio_input_skips_default_station_injection() {
+        let tracks = build_tracks(&[InputRef::Radio("/tmp/stations.m3u".into())]);
+        assert_eq!(tracks.len(), 1);
+        assert!(tracks[0].title.starts_with("⚠ Radio error:"));
     }
 }

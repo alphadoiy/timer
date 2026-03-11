@@ -1,5 +1,6 @@
 ---
 name: core-actionbook
+description: Internal reference skill for actionbook-based browser automation selectors and workflows.
 # Internal tool - no description to prevent auto-triggering
 # Used by: rust-learner agents for pre-computed selectors
 ---
