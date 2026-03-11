@@ -68,6 +68,14 @@ fn config_path() -> PathBuf {
     base
 }
 
+/// Path to the user's custom radio stations config file.
+pub fn radios_path() -> PathBuf {
+    let mut base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    base.push("timer");
+    base.push("radios.toml");
+    base
+}
+
 const fn default_shuffle() -> bool {
     false
 }
@@ -100,5 +108,11 @@ mod tests {
         assert_eq!(merged.repeat_mode, RepeatMode::All);
         assert_eq!(merged.volume, 64);
         assert!(merged.auto_play);
+    }
+
+    #[test]
+    fn radios_path_ends_with_expected_file() {
+        let path = radios_path();
+        assert!(path.ends_with("timer/radios.toml"));
     }
 }

@@ -66,11 +66,19 @@ impl ThunderstormSystem {
                 let mut bx = x + branch_dir;
                 let mut by = y + 1.0;
                 for step in 0..branch_len {
-                    if by >= (self.terminal_height.saturating_sub(2)) as f32 || bx < 1.0 || bx >= (self.terminal_width.saturating_sub(1)) as f32 {
+                    if by >= (self.terminal_height.saturating_sub(2)) as f32
+                        || bx < 1.0
+                        || bx >= (self.terminal_width.saturating_sub(1)) as f32
+                    {
                         break;
                     }
-                    let jitter = if rng.random::<bool>() { branch_dir } else { 0.0 };
-                    let nbx = (bx + jitter).clamp(1.0, (self.terminal_width.saturating_sub(2)) as f32);
+                    let jitter = if rng.random::<bool>() {
+                        branch_dir
+                    } else {
+                        0.0
+                    };
+                    let nbx =
+                        (bx + jitter).clamp(1.0, (self.terminal_width.saturating_sub(2)) as f32);
                     let nby = by + 1.0;
                     segments.push((bx, by, nbx, nby, true));
                     bx = nbx;
@@ -156,7 +164,11 @@ impl ThunderstormSystem {
             let life_ratio = bolt.age as f32 / bolt.max_age as f32;
             for &(x0, y0, x1, y1, is_branch) in &bolt.segments {
                 let color = if self.flash_active {
-                    if dark_bg { Color::White } else { Color::Rgb(200, 200, 0) }
+                    if dark_bg {
+                        Color::White
+                    } else {
+                        Color::Rgb(200, 200, 0)
+                    }
                 } else if self.afterglow_active {
                     if dark_bg {
                         Color::Rgb(180, 170, 220)
@@ -165,14 +177,22 @@ impl ThunderstormSystem {
                     }
                 } else if is_branch {
                     if life_ratio > 0.5 {
-                        if dark_bg { Color::DarkGray } else { Color::Gray }
+                        if dark_bg {
+                            Color::DarkGray
+                        } else {
+                            Color::Gray
+                        }
                     } else if dark_bg {
                         Color::Rgb(120, 110, 180)
                     } else {
                         Color::Rgb(80, 70, 130)
                     }
                 } else if life_ratio > 0.6 {
-                    if dark_bg { Color::Rgb(180, 160, 0) } else { Color::Rgb(140, 120, 0) }
+                    if dark_bg {
+                        Color::Rgb(180, 160, 0)
+                    } else {
+                        Color::Rgb(140, 120, 0)
+                    }
                 } else if dark_bg {
                     Color::Yellow
                 } else {
@@ -184,7 +204,11 @@ impl ThunderstormSystem {
         if self.flash_active {
             let y = (self.terminal_height.saturating_sub(2)) as f32;
             let w = self.terminal_width as f32;
-            let color = if dark_bg { Color::White } else { Color::Rgb(200, 200, 0) };
+            let color = if dark_bg {
+                Color::White
+            } else {
+                Color::Rgb(200, 200, 0)
+            };
             canvas.scatter_rect(0.0, y, w, 1.0, 0.3, color, 12345);
         }
     }

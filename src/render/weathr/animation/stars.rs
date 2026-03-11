@@ -108,7 +108,11 @@ impl StarSystem {
     pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         for star in &self.stars {
             let color = if star.brightness > 0.6 {
-                if dark_bg { Color::White } else { Color::Rgb(60, 60, 80) }
+                if dark_bg {
+                    Color::White
+                } else {
+                    Color::Rgb(60, 60, 80)
+                }
             } else if dark_bg {
                 Color::Rgb(100, 100, 120)
             } else {
@@ -122,7 +126,11 @@ impl StarSystem {
             if !s.active {
                 return;
             }
-            let head_color = if dark_bg { Color::White } else { Color::Rgb(40, 40, 60) };
+            let head_color = if dark_bg {
+                Color::White
+            } else {
+                Color::Rgb(40, 40, 60)
+            };
             let tail_color = if dark_bg {
                 Color::Rgb(160, 160, 180)
             } else {

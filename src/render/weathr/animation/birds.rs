@@ -83,9 +83,9 @@ impl BirdSystem {
 
     pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         let color = if dark_bg {
-            Color::Rgb(80, 70, 60)
+            Color::Rgb(166, 176, 194)
         } else {
-            Color::Rgb(40, 35, 30)
+            Color::Rgb(72, 82, 96)
         };
         for flock in &self.flocks {
             render_bird_braille(canvas, &flock.leader, color);

@@ -32,36 +32,12 @@ impl Ground {
         };
 
         let w = width as f32;
-        canvas.scatter_rect(
-            0.0,
-            y_start as f32,
-            w,
-            1.0,
-            0.6,
-            grass_color,
-            42,
-        );
-        canvas.scatter_rect(
-            0.0,
-            y_start as f32,
-            w,
-            1.0,
-            0.2,
-            grass_alt,
-            99,
-        );
+        canvas.scatter_rect(0.0, y_start as f32, w, 1.0, 0.6, grass_color, 42);
+        canvas.scatter_rect(0.0, y_start as f32, w, 1.0, 0.2, grass_alt, 99);
 
         if !flower_colors.is_empty() {
             for (i, &fc) in flower_colors.iter().enumerate() {
-                canvas.scatter_rect(
-                    0.0,
-                    y_start as f32,
-                    w,
-                    1.0,
-                    0.03,
-                    fc,
-                    200 + i as u32,
-                );
+                canvas.scatter_rect(0.0, y_start as f32, w, 1.0, 0.03, fc, 200 + i as u32);
             }
         }
 
@@ -71,15 +47,7 @@ impl Ground {
             } else {
                 Color::Rgb(40, 60, 100)
             };
-            canvas.scatter_rect(
-                0.0,
-                y_start as f32,
-                w,
-                1.0,
-                0.08,
-                puddle_color,
-                777,
-            );
+            canvas.scatter_rect(0.0, y_start as f32, w, 1.0, 0.08, puddle_color, 777);
         }
 
         for row in 1..height {
@@ -184,7 +152,12 @@ fn snow_palette(is_day: bool, dark_bg: bool) -> (Color, Color, Vec<Color>, Color
             )
         }
     } else if dark_bg {
-        (Color::Gray, Color::DarkGray, vec![], Color::Rgb(100, 100, 110))
+        (
+            Color::Gray,
+            Color::DarkGray,
+            vec![],
+            Color::Rgb(100, 100, 110),
+        )
     } else {
         (
             Color::Rgb(80, 80, 90),

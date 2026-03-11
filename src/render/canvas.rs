@@ -42,7 +42,14 @@ impl BrailleCanvas {
         self.bits[idx] |= braille_mask(sub_x, sub_y);
         self.colors[idx] = color;
     }
-    pub(crate) fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: ratatui::style::Color) {
+    pub(crate) fn draw_line(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        color: ratatui::style::Color,
+    ) {
         let dx = x1 - x0;
         let dy = y1 - y0;
         let steps = dx.abs().max(dy.abs()).max(1.0) as usize;

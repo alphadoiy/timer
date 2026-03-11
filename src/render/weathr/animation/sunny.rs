@@ -25,8 +25,20 @@ impl SunnyAnimation {
         let h = canvas.cell_height() as f32;
         let cx = w * 0.5;
         let cy = h * 0.25;
+        self.render_braille_at(canvas, frame_number, dark_bg, cx, cy);
+    }
+
+    pub fn render_braille_at(
+        &self,
+        canvas: &mut BrailleWeatherCanvas,
+        frame_number: usize,
+        dark_bg: bool,
+        cx: f32,
+        cy: f32,
+    ) {
         let core_r = 2.5;
-        let ray_len = 4.0;
+        let ray_len = 2.4;
+        let vertical_scale = 0.5;
 
         let (core_color, ray_color, glow_color) = if dark_bg {
             (
@@ -43,19 +55,23 @@ impl SunnyAnimation {
         };
 
         canvas.fill_circle(cx, cy, core_r, core_color);
-        canvas.fill_circle(cx, cy, core_r + 0.5, glow_color);
+        canvas.fill_circle(cx, cy, core_r + 0.3, glow_color);
         canvas.fill_circle(cx, cy, core_r - 0.5, core_color);
 
-        let ray_count = 12;
-        let phase = if frame_number.is_multiple_of(2) { 0.0 } else { TAU / (ray_count as f32 * 2.0) };
+        let ray_count = 8;
+        let phase = if frame_number.is_multiple_of(2) {
+            0.0
+        } else {
+            TAU / (ray_count as f32 * 2.0)
+        };
         for i in 0..ray_count {
             let theta = phase + (i as f32 / ray_count as f32) * TAU;
-            let inner_r = core_r + 0.8;
+            let inner_r = core_r + 0.35;
             let outer_r = core_r + ray_len;
             let x0 = cx + theta.cos() * inner_r;
-            let y0 = cy + theta.sin() * inner_r;
+            let y0 = cy + theta.sin() * inner_r * vertical_scale;
             let x1 = cx + theta.cos() * outer_r;
-            let y1 = cy + theta.sin() * outer_r;
+            let y1 = cy + theta.sin() * outer_r * vertical_scale;
             canvas.draw_line(x0, y0, x1, y1, ray_color);
         }
     }

@@ -53,20 +53,32 @@ const SPECTRUM: &[(f32, u8, u8, u8)] = &[
 ];
 
 const FIRE: &[(f32, u8, u8, u8)] = &[
-    (0.00, 110, 45, 15), (0.22, 185, 55, 12), (0.48, 255, 105, 18),
-    (0.72, 255, 195, 50), (1.00, 255, 225, 100),
+    (0.00, 110, 45, 15),
+    (0.22, 185, 55, 12),
+    (0.48, 255, 105, 18),
+    (0.72, 255, 195, 50),
+    (1.00, 255, 225, 100),
 ];
 const OCEAN: &[(f32, u8, u8, u8)] = &[
-    (0.00, 45, 65, 135), (0.28, 50, 105, 230), (0.52, 35, 195, 222),
-    (0.76, 100, 228, 215), (1.00, 120, 235, 250),
+    (0.00, 45, 65, 135),
+    (0.28, 50, 105, 230),
+    (0.52, 35, 195, 222),
+    (0.76, 100, 228, 215),
+    (1.00, 120, 235, 250),
 ];
 const MATRIX_PAL: &[(f32, u8, u8, u8)] = &[
-    (0.00, 22, 82, 22), (0.28, 18, 105, 28), (0.52, 22, 185, 48),
-    (0.76, 60, 248, 82), (1.00, 105, 250, 125),
+    (0.00, 22, 82, 22),
+    (0.28, 18, 105, 28),
+    (0.52, 22, 185, 48),
+    (0.76, 60, 248, 82),
+    (1.00, 105, 250, 125),
 ];
 const CYBER: &[(f32, u8, u8, u8)] = &[
-    (0.00, 22, 72, 82), (0.28, 22, 108, 118), (0.52, 28, 200, 188),
-    (0.76, 80, 245, 218), (1.00, 125, 250, 232),
+    (0.00, 22, 72, 82),
+    (0.28, 22, 108, 118),
+    (0.52, 28, 200, 188),
+    (0.76, 80, 245, 218),
+    (1.00, 125, 250, 232),
 ];
 
 /// Evaluate a multi-stop gradient, quantised to 25 levels for span batching.
@@ -175,7 +187,11 @@ pub(super) fn render_columns_styled(
     for b in 0..num_bands {
         let char_w = vis_band_width(b, width, num_bands);
         let sub_w = char_w * 2;
-        let next = if b + 1 < num_bands { bands[b + 1] } else { bands[b] };
+        let next = if b + 1 < num_bands {
+            bands[b + 1]
+        } else {
+            bands[b]
+        };
         for sc in 0..sub_w {
             let t = sc as f32 / sub_w.max(1) as f32;
             sub_energies.push((bands[b] * (1.0 - t) + next * t).clamp(0.0, 1.0));
@@ -296,8 +312,9 @@ pub(super) fn render_braille_scatter_styled(
             let band_w = vis_band_width(b, width, bands.len());
             let energy = bands[b];
             let energy2 = energy * energy;
-            let col_offset: usize =
-                (0..b).map(|i| vis_band_width(i, width, bands.len()) + 1).sum();
+            let col_offset: usize = (0..b)
+                .map(|i| vis_band_width(i, width, bands.len()) + 1)
+                .sum();
             for c in 0..band_w {
                 let mut braille = 0x2800u32;
                 let mut lit = 0usize;
@@ -307,9 +324,8 @@ pub(super) fn render_braille_scatter_styled(
                         let dot_x = c * 2 + dc;
                         let norm_y = 1.0 - dot_y as f32 / dot_rows;
                         let col_seed = (col_offset + c) as f32 * 1.37;
-                        let rise_phase = norm_y * 4.0
-                            + frame as f32 * (0.08 + energy * 0.14)
-                            + col_seed;
+                        let rise_phase =
+                            norm_y * 4.0 + frame as f32 * (0.08 + energy * 0.14) + col_seed;
                         let height_fade = 1.0 - norm_y * 0.75;
                         let spawn = energy2 * height_fade;
                         let drift = (rise_phase * 1.8 + b as f32 * 2.1).sin() * 0.25 * norm_y;

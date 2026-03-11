@@ -92,7 +92,11 @@ impl FireflySystem {
                 continue;
             }
             let color = if f.brightness > 200 {
-                if dark_bg { Color::Yellow } else { Color::Rgb(180, 160, 0) }
+                if dark_bg {
+                    Color::Yellow
+                } else {
+                    Color::Rgb(180, 160, 0)
+                }
             } else if f.brightness > 128 {
                 if dark_bg {
                     Color::Rgb(200, 255, 100)

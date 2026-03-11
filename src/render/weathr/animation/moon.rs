@@ -25,6 +25,11 @@ impl MoonSystem {
         self.y = (th / 4).max(2);
     }
 
+    pub fn set_position(&mut self, x: u16, y: u16) {
+        self.x = x;
+        self.y = y;
+    }
+
     pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         let cx = self.x as f32;
         let cy = self.y as f32;
@@ -54,11 +59,19 @@ impl MoonSystem {
 
         match illum {
             1 | 7 => {
-                let shadow_cx = if illum == 1 { cx - r * 0.6 } else { cx + r * 0.6 };
+                let shadow_cx = if illum == 1 {
+                    cx - r * 0.6
+                } else {
+                    cx + r * 0.6
+                };
                 canvas.fill_circle(shadow_cx, cy, r * 0.85, Color::Reset);
             }
             2 | 6 => {
-                let shadow_cx = if illum == 2 { cx - r * 0.3 } else { cx + r * 0.3 };
+                let shadow_cx = if illum == 2 {
+                    cx - r * 0.3
+                } else {
+                    cx + r * 0.3
+                };
                 canvas.fill_circle(shadow_cx, cy, r * 0.7, Color::Reset);
             }
             3 | 5 => {}

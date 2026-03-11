@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use chrono::{Local, Timelike};
 use ratatui::{buffer::Buffer, layout::Rect};
 
 use crate::{
@@ -7,13 +8,12 @@ use crate::{
         BrailleWeatherCanvas,
         animation::{
             AnimationController, airplanes::AirplaneSystem, birds::BirdSystem,
-            butterflies::ButterflySystem,
-            chimney::ChimneySmoke, clouds::CloudSystem, fireflies::FireflySystem, fog::FogSystem,
-            moon::MoonSystem, raindrops::RaindropSystem,
-            snow::SnowSystem,
-            stars::StarSystem, sunny::SunnyAnimation, thunderstorm::ThunderstormSystem,
+            butterflies::ButterflySystem, chimney::ChimneySmoke, clouds::CloudSystem,
+            fireflies::FireflySystem, fog::FogSystem, moon::MoonSystem, raindrops::RaindropSystem,
+            snow::SnowSystem, stars::StarSystem, sunny::SunnyAnimation,
+            thunderstorm::ThunderstormSystem,
         },
-        scene::{WorldScene, house::House, ground::GroundWeather},
+        scene::{WorldScene, ground::GroundWeather, house::House},
         types::{FogIntensity, RainIntensity, SnowIntensity},
     },
     weather_live::{LiveWeather, WeatherCondition, configured_coords, spawn_weather_worker},
@@ -22,6 +22,19 @@ use crate::{
 const SIM_STEP: Duration = Duration::from_millis(33);
 const MAX_SIM_STEPS_PER_FRAME: u8 = 8;
 const SUNNY_FRAME_DELAY: Duration = Duration::from_millis(500);
+const SUNRISE_HOUR: f32 = 6.0;
+const SUNSET_HOUR: f32 = 18.0;
+const CELESTIAL_MARGIN_X: f32 = 4.0;
+const CELESTIAL_TOP_Y: f32 = 2.5;
+const CELESTIAL_BOTTOM_PADDING: f32 = 2.5;
+const SUN_RADIUS: f32 = 2.5;
+const MOON_RADIUS: f32 = 3.5;
+
+#[derive(Clone, Copy)]
+struct CelestialPosition {
+    x: f32,
+    y: f32,
+}
 
 #[derive(Clone, Copy)]
 struct WeatherFlags {
@@ -180,7 +193,6 @@ impl WeatherScene {
 
         if !flags.is_day {
             self.stars.update(w, h, &mut rng);
-            self.moon.update(w, h);
             if self.should_show_fireflies() {
                 let horizon = h.saturating_sub(WorldScene::GROUND_HEIGHT);
                 self.fireflies.update(w, h, horizon, &mut rng);
@@ -197,7 +209,13 @@ impl WeatherScene {
 
         if flags.is_cloudy || self.current_weather.condition == WeatherCondition::Clear {
             let is_clear = self.current_weather.condition == WeatherCondition::Clear;
-            self.clouds.update(w, h, is_clear, &mut rng);
+            let use_dark_palette =
+                matches!(self.current_weather.condition, WeatherCondition::Overcast)
+                    || flags.is_raining
+                    || flags.is_thunderstorm
+                    || flags.is_snowing;
+            self.clouds
+                .update(w, h, is_clear, use_dark_palette, &mut rng);
         }
 
         if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && !flags.is_foggy {
@@ -221,8 +239,8 @@ impl WeatherScene {
             let horizon = h.saturating_sub(WorldScene::GROUND_HEIGHT);
             let house_x = (w / 2).saturating_sub(House::WIDTH / 2);
             let house_y = horizon.saturating_sub(House::HEIGHT);
-            let chimney_x = house_x + House::CHIMNEY_X_OFFSET;
-            self.chimney.update(chimney_x, house_y, &mut rng);
+            let (chimney_x, chimney_y) = self.house_chimney_source(house_x, house_y);
+            self.chimney.update(chimney_x, chimney_y, &mut rng);
         }
     }
 
@@ -240,6 +258,12 @@ impl WeatherScene {
         self.scene.update_size(w, h);
 
         let flags = WeatherFlags::from_weather(self.current_weather);
+        let sun_position = self.sun_position(w, h);
+        let moon_position = self.moon_position(w, h);
+        self.moon.set_position(
+            moon_position.x.round() as u16,
+            moon_position.y.round() as u16,
+        );
 
         if !flags.is_day {
             self.stars.render_braille(&mut self.canvas, dark_bg);
@@ -253,10 +277,12 @@ impl WeatherScene {
             && !flags.is_thunderstorm
             && !flags.is_snowing
         {
-            self.sunny_animation.render_braille(
+            self.sunny_animation.render_braille_at(
                 &mut self.canvas,
                 self.animation_controller.current_frame(),
                 dark_bg,
+                sun_position.x,
+                sun_position.y,
             );
         }
 
@@ -336,7 +362,8 @@ impl WeatherScene {
         } else {
             ratatui::style::Color::Gray
         };
-        self.canvas.put_text(attr_x, attr_y, attribution, attr_color);
+        self.canvas
+            .put_text(attr_x, attr_y, attribution, attr_color);
     }
 
     fn weather_hud_line(&self) -> String {
@@ -383,6 +410,42 @@ impl WeatherScene {
             && !c.is_snowing()
     }
 
+    fn house_chimney_source(&self, house_x: u16, house_y: u16) -> (u16, u16) {
+        House.chimney_smoke_source(house_x, house_y)
+    }
+
+    fn sun_position(&self, w: u16, h: u16) -> CelestialPosition {
+        let time_hours = local_time_hours();
+        let progress = ((time_hours - SUNRISE_HOUR) / (SUNSET_HOUR - SUNRISE_HOUR)).clamp(0.0, 1.0);
+        celestial_position(progress, w, h, SUN_RADIUS)
+    }
+
+    fn moon_position(&self, w: u16, h: u16) -> CelestialPosition {
+        let time_hours = local_time_hours();
+        let progress = if time_hours >= SUNSET_HOUR {
+            (time_hours - SUNSET_HOUR) / (24.0 - SUNSET_HOUR + SUNRISE_HOUR)
+        } else {
+            (time_hours + (24.0 - SUNSET_HOUR)) / (24.0 - SUNSET_HOUR + SUNRISE_HOUR)
+        }
+        .clamp(0.0, 1.0);
+        celestial_position(progress, w, h, MOON_RADIUS)
+    }
+}
+
+fn local_time_hours() -> f32 {
+    let now = Local::now();
+    now.hour() as f32 + now.minute() as f32 / 60.0 + now.second() as f32 / 3600.0
+}
+
+fn celestial_position(progress: f32, w: u16, h: u16, radius: f32) -> CelestialPosition {
+    let horizon_y = h.saturating_sub(WorldScene::GROUND_HEIGHT) as f32;
+    let skyline_top = (horizon_y - 13.5).max(CELESTIAL_TOP_Y + radius);
+    let floor_y = (skyline_top - radius - CELESTIAL_BOTTOM_PADDING).max(CELESTIAL_TOP_Y + radius);
+    let usable_w = (w as f32 - CELESTIAL_MARGIN_X * 2.0).max(8.0);
+    let x = CELESTIAL_MARGIN_X + progress * usable_w;
+    let arc = 1.0 - (2.0 * progress - 1.0).powi(2);
+    let y = floor_y - arc * (floor_y - (CELESTIAL_TOP_Y + radius));
+    CelestialPosition { x, y }
 }
 
 fn format_precip_mm(value: f32) -> String {
@@ -390,5 +453,23 @@ fn format_precip_mm(value: f32) -> String {
         "0".to_string()
     } else {
         format!("{value:.1}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CELESTIAL_TOP_Y, MOON_RADIUS, SUN_RADIUS, celestial_position};
+
+    #[test]
+    fn celestial_path_stays_above_skyline() {
+        let h = 34;
+        for progress in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
+            let sun = celestial_position(progress, 120, h, SUN_RADIUS);
+            let moon = celestial_position(progress, 120, h, MOON_RADIUS);
+            assert!(sun.y >= CELESTIAL_TOP_Y + SUN_RADIUS - 0.1);
+            assert!(moon.y >= CELESTIAL_TOP_Y + MOON_RADIUS - 0.1);
+            assert!(sun.y <= h as f32 - 20.0);
+            assert!(moon.y <= h as f32 - 20.0);
+        }
     }
 }

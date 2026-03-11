@@ -8,7 +8,7 @@ mod tests {
     use crate::{
         app::ModeKind,
         modes::clock::ClockSnapshot,
-        music::{MusicSnapshot, PlaybackState, VisualizerMode},
+        music::{MusicSnapshot, PlaybackState, VisualizerMode, command_line::CommandLine},
         theme::Theme,
     };
 
@@ -39,6 +39,8 @@ mod tests {
             },
             music_full_visualizer: false,
             music_queue_overlay: false,
+            music_source_overlay: false,
+            command_line: &CommandLine::new(),
             pose: SpritePose::default(),
             theme: Theme::default(),
             dark_bg: true,
@@ -104,6 +106,8 @@ mod tests {
                 music: &snapshot,
                 music_full_visualizer: false,
                 music_queue_overlay: false,
+                music_source_overlay: false,
+                command_line: &CommandLine::new(),
                 pose: SpritePose::default(),
                 theme: Theme::default(),
                 dark_bg: true,

@@ -20,11 +20,16 @@ pub(super) fn build_visual_progress_line(
     }
 
     if width == 1 {
-        return Line::from(Span::styled("◉", Style::default().fg(Color::Rgb(255, 150, 170))));
+        return Line::from(Span::styled(
+            "◉",
+            Style::default().fg(Color::Rgb(255, 150, 170)),
+        ));
     }
 
     let inner = width.saturating_sub(2).max(1);
-    let head = progress.map(|p| (p * inner as f32).round() as usize).unwrap_or(0);
+    let head = progress
+        .map(|p| (p * inner as f32).round() as usize)
+        .unwrap_or(0);
     let unknown_head = ((playback_secs * 8.0) as usize) % inner;
     let y_gain = (height.max(1) as f32).sqrt().clamp(1.0, 2.2);
     let frame = (playback_secs * 60.0) as u64;
@@ -38,10 +43,8 @@ pub(super) fn build_visual_progress_line(
         let t = x as f32 / inner as f32;
         let travel = playback_secs * 4.8;
         let swell = ((t * std::f32::consts::TAU * 1.7) - travel).sin() * 0.5 + 0.5;
-        let chop =
-            ((t * std::f32::consts::TAU * 9.8) + travel * 1.9 + t * 3.7).sin() * 0.5 + 0.5;
-        let counter =
-            (((1.0 - t) * std::f32::consts::TAU * 3.2) - travel * 1.3).sin() * 0.5 + 0.5;
+        let chop = ((t * std::f32::consts::TAU * 9.8) + travel * 1.9 + t * 3.7).sin() * 0.5 + 0.5;
+        let counter = (((1.0 - t) * std::f32::consts::TAU * 3.2) - travel * 1.3).sin() * 0.5 + 0.5;
         let turbulence = (noise01(x as u64, frame) - 0.5) * 0.34;
         let surface = (swell * 0.46 + chop * 0.32 + counter * 0.22 + turbulence).clamp(0.0, 1.0);
 
@@ -58,12 +61,10 @@ pub(super) fn build_visual_progress_line(
                 let next_t = ((x + 1).min(inner.saturating_sub(1))) as f32 / inner as f32;
                 let next_swell =
                     ((next_t * std::f32::consts::TAU * 1.7) - travel).sin() * 0.5 + 0.5;
-                let next_chop = ((next_t * std::f32::consts::TAU * 9.8)
-                    + travel * 1.9
-                    + next_t * 3.7)
-                    .sin()
-                    * 0.5
-                    + 0.5;
+                let next_chop =
+                    ((next_t * std::f32::consts::TAU * 9.8) + travel * 1.9 + next_t * 3.7).sin()
+                        * 0.5
+                        + 0.5;
                 let next_counter =
                     (((1.0 - next_t) * std::f32::consts::TAU * 3.2) - travel * 1.3).sin() * 0.5
                         + 0.5;
@@ -71,17 +72,14 @@ pub(super) fn build_visual_progress_line(
                 let next_surface =
                     (next_swell * 0.46 + next_chop * 0.32 + next_counter * 0.22 + next_turbulence)
                         .clamp(0.0, 1.0);
-                let next_level = (next_surface * (0.82 + y_gain * 0.28) + crest_boost).clamp(0.0, 1.0);
+                let next_level =
+                    (next_surface * (0.82 + y_gain * 0.28) + crest_boost).clamp(0.0, 1.0);
                 let slope = (next_level - level).clamp(-1.0, 1.0);
                 let fill = progress_wave_char(level, slope);
                 let t = x as f32 / inner.max(1) as f32;
                 (
                     fill,
-                    lerp_color(
-                        Color::Rgb(76, 218, 196),
-                        Color::Rgb(255, 184, 112),
-                        t,
-                    ),
+                    lerp_color(Color::Rgb(76, 218, 196), Color::Rgb(255, 184, 112), t),
                 )
             } else {
                 // Keep unplayed part static: no wave shape.
@@ -133,10 +131,10 @@ fn progress_wave_char(level: f32, slope: f32) -> char {
     };
     let right_row = (row as i32 + slope_shift).clamp(0, 3) as usize;
     let right = match right_row {
-        0 => 0b0000_1000,  // dot 4
-        1 => 0b0001_0000,  // dot 5
-        2 => 0b0010_0000,  // dot 6
-        _ => 0b1000_0000,  // dot 8
+        0 => 0b0000_1000, // dot 4
+        1 => 0b0001_0000, // dot 5
+        2 => 0b0010_0000, // dot 6
+        _ => 0b1000_0000, // dot 8
     };
 
     // Add thickness near crests to make wave peaks pop.
@@ -205,8 +203,8 @@ pub(super) fn render_seek_wave(
     }
 
     let progress_val = progress.unwrap();
-    let head = ((progress_val * inner_width as f32).round() as usize)
-        .min(inner_width.saturating_sub(1));
+    let head =
+        ((progress_val * inner_width as f32).round() as usize).min(inner_width.saturating_sub(1));
     let total_sub_cols = (inner_width * 2).max(1);
     let sub_rows = rows * 4;
     let center_f = sub_rows as f32 / 2.0;
@@ -244,10 +242,7 @@ pub(super) fn render_seek_wave(
         row_spans[0].push(Span::styled("╞", cap_l_style));
     } else {
         for r in 0..rows {
-            row_spans[r].push(Span::styled(
-                center_line_chars[r].to_string(),
-                cap_l_style,
-            ));
+            row_spans[r].push(Span::styled(center_line_chars[r].to_string(), cap_l_style));
         }
     }
 
@@ -258,10 +253,7 @@ pub(super) fn render_seek_wave(
                 row_spans[0].push(Span::styled("◉", head_style));
             } else {
                 for r in 0..rows {
-                    row_spans[r].push(Span::styled(
-                        center_line_chars[r].to_string(),
-                        head_style,
-                    ));
+                    row_spans[r].push(Span::styled(center_line_chars[r].to_string(), head_style));
                 }
             }
             continue;
@@ -273,10 +265,7 @@ pub(super) fn render_seek_wave(
                 row_spans[0].push(Span::styled("─", dim_style));
             } else {
                 for r in 0..rows {
-                    row_spans[r].push(Span::styled(
-                        center_line_chars[r].to_string(),
-                        dim_style,
-                    ));
+                    row_spans[r].push(Span::styled(center_line_chars[r].to_string(), dim_style));
                 }
             }
             continue;
@@ -294,12 +283,10 @@ pub(super) fn render_seek_wave(
 
             let band = interpolate_spectrum(t, spectrum);
             let wave = seek_layered_sine(t, playback_secs, sx, vis_frame);
-            let amplitude =
-                (wave * (0.15 + band * 0.80 + wake * 0.15)).clamp(0.08, 1.0);
+            let amplitude = (wave * (0.15 + band * 0.80 + wake * 0.15)).clamp(0.08, 1.0);
 
             let top = (center_f - amplitude * center_f).max(0.0) as usize;
-            let bottom =
-                ((center_f + amplitude * center_f).ceil() as usize).min(sub_rows);
+            let bottom = ((center_f + amplitude * center_f).ceil() as usize).min(sub_rows);
 
             for sub_row in top..bottom {
                 let cell_row = sub_row / 4;
@@ -312,11 +299,7 @@ pub(super) fn render_seek_wave(
 
         // Gradient teal→amber with brightness glow near playhead
         let grad_t = cx as f32 / inner_width.max(1) as f32;
-        let base = lerp_color(
-            Color::Rgb(76, 218, 196),
-            Color::Rgb(255, 184, 112),
-            grad_t,
-        );
+        let base = lerp_color(Color::Rgb(76, 218, 196), Color::Rgb(255, 184, 112), grad_t);
         let color = if wake > 0.0 {
             brighten_color(base, wake * 0.3)
         } else {
@@ -336,10 +319,7 @@ pub(super) fn render_seek_wave(
         row_spans[0].push(Span::styled("╡", cap_r_style));
     } else {
         for r in 0..rows {
-            row_spans[r].push(Span::styled(
-                center_line_chars[r].to_string(),
-                cap_r_style,
-            ));
+            row_spans[r].push(Span::styled(center_line_chars[r].to_string(), cap_r_style));
         }
     }
 

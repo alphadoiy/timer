@@ -107,11 +107,19 @@ impl ButterflySystem {
     }
 
     pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
-        let palette = if dark_bg { &WING_COLORS_DARK } else { &WING_COLORS_LIGHT };
+        let palette = if dark_bg {
+            &WING_COLORS_DARK
+        } else {
+            &WING_COLORS_LIGHT
+        };
         for b in &self.butterflies {
             let (r, g, bl) = palette[b.color_idx % palette.len()];
             let wing_color = Color::Rgb(r, g, bl);
-            let body_color = if dark_bg { Color::White } else { Color::Rgb(40, 40, 40) };
+            let body_color = if dark_bg {
+                Color::White
+            } else {
+                Color::Rgb(40, 40, 40)
+            };
             let flap = b.flap_phase.sin();
             let wing_dy = if flap > 0.3 {
                 -0.3

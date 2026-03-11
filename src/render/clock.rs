@@ -29,13 +29,19 @@ fn render_braille_clock_dial(
     let center_y = canvas.height_sub as f32 / 2.0 + pose.dial_offset_y as f32 * 4.0;
     let radius =
         (canvas.width_sub.min(canvas.height_sub) as f32 * 0.40 * pose.radius_scale).max(8.0);
+    let outer_ring = lerp_color(theme.outline, theme.text, 0.42);
+    let inner_ring = lerp_color(theme.accent_soft, theme.text, 0.28);
+    let minor_tick = lerp_color(theme.subtext, theme.text, 0.35);
+    let major_tick = lerp_color(theme.highlight, theme.accent_soft, 0.4);
+    let center_dot = lerp_color(theme.highlight, theme.accent, 0.35);
+    let label_color = lerp_color(theme.text, theme.accent_soft, 0.25);
 
     canvas.draw_ellipse(
         center_x,
         center_y,
         radius + 0.35,
         radius + 0.35,
-        theme.outline,
+        outer_ring,
         1.8,
     );
     canvas.draw_ellipse(
@@ -43,7 +49,7 @@ fn render_braille_clock_dial(
         center_y,
         radius - 0.35,
         radius - 0.35,
-        theme.outline,
+        outer_ring,
         1.8,
     );
     canvas.draw_ellipse(
@@ -51,7 +57,7 @@ fn render_braille_clock_dial(
         center_y,
         radius - 2.0,
         radius - 2.0,
-        theme.accent_soft,
+        inner_ring,
         4.0,
     );
     draw_dial_ticks(
@@ -59,8 +65,8 @@ fn render_braille_clock_dial(
         center_x,
         center_y,
         radius,
-        theme.subtext,
-        theme.outline,
+        minor_tick,
+        major_tick,
     );
 
     let second_turn = clock.second_angle + pose.second_sweep + pose.tilt;
@@ -95,9 +101,9 @@ fn render_braille_clock_dial(
         sub_to_cell_x(area, center_x),
         sub_to_cell_y(area, center_y),
         "●",
-        theme.accent,
+        center_dot,
     );
-    overlay_dial_labels(buf, area, center_x, center_y, radius, theme);
+    overlay_dial_labels(buf, area, center_x, center_y, radius, label_color);
 }
 
 fn draw_dial_ticks(
@@ -270,7 +276,7 @@ fn overlay_dial_labels(
     center_x: f32,
     center_y: f32,
     radius: f32,
-    theme: Theme,
+    label_color: ratatui::style::Color,
 ) {
     let labels = [
         ("12", -FRAC_PI_2),
@@ -289,10 +295,10 @@ fn overlay_dial_labels(
                 Rect::new(area.x, cell_y as u16, area.width, 1),
                 cell_y,
                 label,
-                theme.accent_soft,
+                label_color,
             );
         } else {
-            super::put(buf, cell_x, cell_y, label, theme.accent_soft);
+            super::put(buf, cell_x, cell_y, label, label_color);
         }
     }
 }

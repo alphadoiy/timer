@@ -44,7 +44,8 @@ pub fn queue_lines(snapshot: &MusicSnapshot, max: usize) -> Vec<String> {
         } else {
             ' '
         };
-        out.push(format!("{selector}{pointer} {}", track.title));
+        let icon = track.provider.icon();
+        out.push(format!("{selector}{pointer} {icon} {}", track.title));
     }
 
     out

@@ -1449,6 +1449,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.37.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "331e97a1af0bf59823e6eadffe373d7b27f485be8748f71471c662c1f269b7fb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2223,12 +2232,14 @@ dependencies = [
  "crossterm",
  "dirs",
  "figlet-rs",
+ "quick-xml",
  "rand 0.10.0",
  "ratatui",
  "reqwest",
  "rodio",
  "rustfft",
  "serde",
+ "serde_json",
  "symphonia",
  "sysinfo",
  "toml",

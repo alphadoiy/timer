@@ -1,6 +1,6 @@
 use std::{
-    io::{Read, Seek, SeekFrom},
     io::BufReader,
+    io::{Read, Seek, SeekFrom},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -18,8 +18,8 @@ use symphonia::{
 };
 
 use super::{
-    MusicCommand, MusicSnapshot, PlaybackState, RepeatMode, TrackMeta, VisualizerMode,
-    SourceKind,
+    MusicCommand, MusicSnapshot, PlaybackState, ProviderKind, RepeatMode, SourceInfo, TrackMeta,
+    VisualizerMode,
     provider::open_reader,
     queue::TrackQueue,
     visualizer::{AudioTap, NUM_BANDS, SpectrumAnalyzer, TapSource},
@@ -145,6 +145,10 @@ impl MusicEngine {
                 self.load(tracks);
                 Ok(())
             }
+            MusicCommand::LoadUrl(url) => {
+                self.load_url(&url);
+                Ok(())
+            }
         };
 
         if let Err(err) = result {
@@ -164,6 +168,17 @@ impl MusicEngine {
         if let Ok(mut tap) = self.tap.lock() {
             tap.clear();
         }
+    }
+
+    fn load_url(&mut self, url: &str) {
+        let inputs = super::library::parse_inputs(&[url.to_string()]);
+        let new_tracks = super::library::build_tracks(&inputs);
+        if new_tracks.is_empty() {
+            self.last_error = Some(format!("No playable tracks found at: {url}"));
+            return;
+        }
+        self.queue.append(new_tracks);
+        self.last_error = None;
     }
 
     pub fn update(&mut self) {
@@ -203,6 +218,7 @@ impl MusicEngine {
             wave_samples: self.wave_samples.clone(),
             visualizer_frame: self.visualizer_frame,
             last_error: self.last_error.clone(),
+            sources: self.source_summary(),
         }
     }
 
@@ -280,7 +296,8 @@ impl MusicEngine {
         let Some(current) = self.queue.current().cloned() else {
             return Ok(());
         };
-        if matches!(current.source_kind, SourceKind::HttpStream) && self.current_duration.is_none() {
+        // Disable seeking for streaming providers without known duration
+        if !matches!(current.provider, ProviderKind::Local) && self.current_duration.is_none() {
             return Ok(());
         }
 
@@ -472,6 +489,20 @@ impl MusicEngine {
         self.spectrum_bands = self.analyzer.analyze(&samples, self.sample_rate_hz);
         self.wave_samples = samples;
     }
+
+    fn source_summary(&self) -> Vec<SourceInfo> {
+        let mut counts = std::collections::HashMap::new();
+        for track in self.queue.tracks() {
+            *counts.entry(track.provider).or_insert(0) += 1;
+        }
+        let mut summary: Vec<SourceInfo> = counts
+            .into_iter()
+            .map(|(kind, count)| SourceInfo { kind, count })
+            .collect();
+        // Sort by kind name for consistent ordering
+        summary.sort_by_key(|info| info.kind.label());
+        summary
+    }
 }
 
 impl Default for MusicEngine {
@@ -503,5 +534,53 @@ impl MediaSource for SeekableMediaSource {
 
     fn byte_len(&self) -> Option<u64> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_source_summary() {
+        let mut queue = TrackQueue::new(false, RepeatMode::Off);
+        let tracks = vec![
+            TrackMeta {
+                id: 1,
+                title: "Local 1".into(),
+                artist: "A".into(),
+                duration: None,
+                provider: ProviderKind::Local,
+                path_or_url: "/tmp/1".into(),
+            },
+            TrackMeta {
+                id: 2,
+                title: "Local 2".into(),
+                artist: "B".into(),
+                duration: None,
+                provider: ProviderKind::Local,
+                path_or_url: "/tmp/2".into(),
+            },
+            TrackMeta {
+                id: 3,
+                title: "Radio 1".into(),
+                artist: "C".into(),
+                duration: None,
+                provider: ProviderKind::Radio,
+                path_or_url: "http://radio".into(),
+            },
+        ];
+        queue.load(tracks);
+        let engine = MusicEngine::new(queue, 80);
+        let summary = engine.source_summary();
+
+        assert_eq!(summary.len(), 2);
+        
+        // They should be sorted by label: "Local", then "Radio"
+        assert_eq!(summary[0].kind, ProviderKind::Local);
+        assert_eq!(summary[0].count, 2);
+        
+        assert_eq!(summary[1].kind, ProviderKind::Radio);
+        assert_eq!(summary[1].count, 1);
     }
 }

@@ -80,11 +80,7 @@ impl BrailleWeatherCanvas {
     }
 
     pub fn plot_f(&mut self, x: f32, y: f32, color: Color) {
-        self.plot(
-            (x * 2.0).round() as i32,
-            (y * 4.0).round() as i32,
-            color,
-        );
+        self.plot((x * 2.0).round() as i32, (y * 4.0).round() as i32, color);
     }
 
     pub fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: Color) {
@@ -192,9 +188,12 @@ impl BrailleWeatherCanvas {
     #[allow(clippy::too_many_arguments)]
     pub fn fill_triangle(
         &mut self,
-        x0: f32, y0: f32,
-        x1: f32, y1: f32,
-        x2: f32, y2: f32,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
         color: Color,
     ) {
         let sx = [x0 * 2.0, x1 * 2.0, x2 * 2.0];
@@ -207,9 +206,7 @@ impl BrailleWeatherCanvas {
                 let j = (i + 1) % 3;
                 let (ya, yb) = (sy[i], sy[j]);
                 let (xa, xb) = (sx[i], sx[j]);
-                if (ya <= row as f32 && yb > row as f32)
-                    || (yb <= row as f32 && ya > row as f32)
-                {
+                if (ya <= row as f32 && yb > row as f32) || (yb <= row as f32 && ya > row as f32) {
                     let t = (row as f32 - ya) / (yb - ya);
                     x_ints.push(xa + t * (xb - xa));
                 }
@@ -229,7 +226,10 @@ impl BrailleWeatherCanvas {
     #[allow(clippy::too_many_arguments)]
     pub fn scatter_rect(
         &mut self,
-        x: f32, y: f32, w: f32, h: f32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
         density: f32,
         color: Color,
         seed: u32,
@@ -306,7 +306,8 @@ fn braille_mask(sub_x: usize, sub_y: usize) -> u8 {
 }
 
 fn pseudo_hash(x: u32, y: u32, seed: u32) -> u32 {
-    let mut h = x.wrapping_mul(374761393)
+    let mut h = x
+        .wrapping_mul(374761393)
         .wrapping_add(y.wrapping_mul(668265263))
         .wrapping_add(seed.wrapping_mul(2246822519));
     h = (h ^ (h >> 13)).wrapping_mul(3266489917);

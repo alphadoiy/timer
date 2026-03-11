@@ -32,9 +32,9 @@ impl Default for Theme {
             shadow: Color::Rgb(19, 30, 44),
             danger: Color::Rgb(255, 107, 107),
             success: Color::Rgb(92, 214, 156),
-            hour_hand: Color::Rgb(166, 214, 255),
-            minute_hand: Color::Rgb(126, 194, 255),
-            second_hand: Color::Rgb(255, 122, 122),
+            hour_hand: Color::Rgb(236, 244, 255),
+            minute_hand: Color::Rgb(120, 220, 255),
+            second_hand: Color::Rgb(255, 104, 92),
         }
     }
 }

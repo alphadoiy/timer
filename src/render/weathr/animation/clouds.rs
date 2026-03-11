@@ -53,7 +53,13 @@ impl CloudSystem {
             clouds.push(Self::make_cloud(x, tw, th, false, base_wind_x, &mut rng));
             next_id = next_id.wrapping_add(1);
         }
-        Self { clouds, terminal_width: tw, terminal_height: th, base_wind_x, next_id }
+        Self {
+            clouds,
+            terminal_width: tw,
+            terminal_height: th,
+            base_wind_x,
+            next_id,
+        }
     }
 
     pub fn set_wind(&mut self, speed_kmh: f32, direction_deg: f32) {
@@ -105,21 +111,46 @@ impl CloudSystem {
 
         // Left edge puff.
         let lp = rx * (0.16 + rng.random::<f32>() * 0.03);
-        bumps.push((-rx * (0.68 + rng.random::<f32>() * 0.04), -ry_body * 0.05, lp));
+        bumps.push((
+            -rx * (0.68 + rng.random::<f32>() * 0.04),
+            -ry_body * 0.05,
+            lp,
+        ));
 
         // Right edge puff.
         let rp = rx * (0.15 + rng.random::<f32>() * 0.03);
-        bumps.push((rx * (0.68 + rng.random::<f32>() * 0.04), -ry_body * 0.05, rp));
+        bumps.push((
+            rx * (0.68 + rng.random::<f32>() * 0.04),
+            -ry_body * 0.05,
+            rp,
+        ));
 
-        Cloud { x, y, speed, wind_x, rx, ry_body, bumps, is_dark }
+        Cloud {
+            x,
+            y,
+            speed,
+            wind_x,
+            rx,
+            ry_body,
+            bumps,
+            is_dark,
+        }
     }
 
-    pub fn update(&mut self, tw: u16, th: u16, is_clear: bool, rng: &mut impl Rng) {
+    pub fn update(
+        &mut self,
+        tw: u16,
+        th: u16,
+        is_clear: bool,
+        use_dark_palette: bool,
+        rng: &mut impl Rng,
+    ) {
         self.terminal_width = tw;
         self.terminal_height = th;
 
         for c in &mut self.clouds {
             c.x += c.speed + c.wind_x;
+            c.is_dark = use_dark_palette;
             // Wrap: when the cloud clears the right edge, re-enter from the left.
             if c.x - c.rx > tw as f32 {
                 c.x = -(c.rx);
@@ -136,7 +167,14 @@ impl CloudSystem {
         let min_gap = (tw as f32 / 6.0).max(12.0);
         let too_close = self.clouds.iter().any(|c| c.x < min_gap && c.x > 0.0);
         if self.clouds.len() < max_clouds && !too_close && rng.random::<f32>() < spawn_chance {
-            self.clouds.push(Self::make_cloud(0.0, tw, th, !is_clear, self.base_wind_x, rng));
+            self.clouds.push(Self::make_cloud(
+                0.0,
+                tw,
+                th,
+                use_dark_palette,
+                self.base_wind_x,
+                rng,
+            ));
             self.next_id = self.next_id.wrapping_add(1);
         }
     }
@@ -144,25 +182,37 @@ impl CloudSystem {
     pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
         for cloud in &self.clouds {
             let body_color = if cloud.is_dark {
-                if dark_bg { Color::Rgb(90, 90, 100) } else { Color::Rgb(120, 120, 130) }
+                if dark_bg {
+                    Color::Rgb(148, 156, 176)
+                } else {
+                    Color::Rgb(132, 142, 160)
+                }
             } else if dark_bg {
                 Color::Rgb(210, 210, 220)
             } else {
-                Color::Rgb(75, 75, 85)
+                Color::Rgb(122, 130, 146)
             };
             let highlight_color = if cloud.is_dark {
-                if dark_bg { Color::Rgb(112, 112, 122) } else { Color::Rgb(140, 140, 150) }
+                if dark_bg {
+                    Color::Rgb(172, 182, 202)
+                } else {
+                    Color::Rgb(156, 168, 186)
+                }
             } else if dark_bg {
                 Color::Rgb(232, 232, 242)
             } else {
-                Color::Rgb(95, 95, 108)
+                Color::Rgb(142, 152, 170)
             };
             let shadow_color = if cloud.is_dark {
-                if dark_bg { Color::Rgb(70, 70, 80) } else { Color::Rgb(100, 100, 110) }
+                if dark_bg {
+                    Color::Rgb(118, 126, 144)
+                } else {
+                    Color::Rgb(108, 116, 132)
+                }
             } else if dark_bg {
                 Color::Rgb(160, 162, 175)
             } else {
-                Color::Rgb(100, 100, 110)
+                Color::Rgb(116, 124, 140)
             };
 
             // Flat body base — full width, shifted slightly down for a flat bottom.

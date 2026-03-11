@@ -43,27 +43,27 @@ impl DashboardView<'_> {
     }
 
     fn render_cliamp_track(&self, area: Rect, buf: &mut Buffer) {
-        let track = self
+        let current = self
             .music
             .current_index
-            .and_then(|idx| self.music.queue.get(idx))
-            .map(|t| t.title.as_str())
-            .unwrap_or("No track loaded");
-        let artist = self
-            .music
-            .current_index
-            .and_then(|idx| self.music.queue.get(idx))
-            .map(|t| t.artist.as_str())
-            .unwrap_or("Unknown");
+            .and_then(|idx| self.music.queue.get(idx));
+        let track_title = current.map(|t| t.title.as_str()).unwrap_or("No track loaded");
+        let artist = current.map(|t| t.artist.as_str()).unwrap_or("Unknown");
+        let icon = current
+            .map(|t| t.provider.icon())
+            .unwrap_or("♫");
+        let provider_label = current
+            .map(|t| t.provider.label())
+            .unwrap_or("Local");
 
         let line1 = Line::from(vec![
-            Span::styled("♫ ", Style::default().fg(Color::LightYellow)),
-            Span::styled(track, Style::default().fg(Color::LightYellow)),
+            Span::styled(format!("{icon} "), Style::default().fg(Color::LightYellow)),
+            Span::styled(track_title, Style::default().fg(Color::LightYellow)),
         ]);
-        let line2 = Line::from(Span::styled(
-            format!("  {artist}"),
-            Style::default().fg(self.theme.subtext),
-        ));
+        let line2 = Line::from(vec![
+            Span::styled(format!("  {artist}"), Style::default().fg(self.theme.subtext)),
+            Span::styled(format!("  [{provider_label}]"), Style::default().fg(Color::DarkGray)),
+        ]);
         Paragraph::new(vec![line1, line2]).render(area, buf);
     }
 
@@ -132,11 +132,10 @@ impl DashboardView<'_> {
             return;
         }
 
-        let progress = self
-            .music
-            .duration
-            .filter(|d| !d.is_zero())
-            .map(|total| (self.music.position.as_secs_f32() / total.as_secs_f32()).clamp(0.0, 1.0));
+        let progress =
+            self.music.duration.filter(|d| !d.is_zero()).map(|total| {
+                (self.music.position.as_secs_f32() / total.as_secs_f32()).clamp(0.0, 1.0)
+            });
         render_seek_wave(
             area,
             buf,
@@ -211,6 +210,8 @@ impl DashboardView<'_> {
 
     fn render_cliamp_help(&self, area: Rect, buf: &mut Buffer) {
         Paragraph::new(Line::from(vec![
+            Span::styled("[:] ", Style::default().fg(Color::LightYellow)),
+            Span::styled("cmd ", Style::default().fg(Color::White)),
             Span::styled("[Space] ", Style::default().fg(self.theme.subtext)),
             Span::styled("⏯ ", Style::default().fg(Color::White)),
             Span::styled("[n/p] ", Style::default().fg(self.theme.subtext)),
@@ -221,8 +222,8 @@ impl DashboardView<'_> {
             Span::styled("full ", Style::default().fg(Color::White)),
             Span::styled("[Q] ", Style::default().fg(self.theme.subtext)),
             Span::styled("queue ", Style::default().fg(Color::White)),
-            Span::styled("[m] ", Style::default().fg(self.theme.subtext)),
-            Span::styled("mute ", Style::default().fg(Color::White)),
+            Span::styled("[S] ", Style::default().fg(self.theme.subtext)),
+            Span::styled("src ", Style::default().fg(Color::White)),
             Span::styled("[q] quit", Style::default().fg(self.theme.subtext)),
         ]))
         .render(area, buf);
@@ -315,6 +316,67 @@ impl DashboardView<'_> {
         Paragraph::new(content).render(rows[0], buf);
         Paragraph::new(Line::from(Span::styled(
             "[Q] close  [↑/↓] select  [Enter] play",
+            Style::default().fg(self.theme.subtext),
+        )))
+        .alignment(Alignment::Center)
+        .render(rows[1], buf);
+    }
+
+    pub(super) fn render_music_source_overlay(&self, area: Rect, buf: &mut Buffer) {
+        let overlay = centered_rect(area, 60, 50);
+        Block::default()
+            .title(Line::from(Span::styled(
+                " Source Overview ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(self.theme.accent_soft))
+            .style(Style::default().bg(self.theme.shadow))
+            .render(overlay, buf);
+
+        let inner = Rect {
+            x: overlay.x + 1,
+            y: overlay.y + 1,
+            width: overlay.width.saturating_sub(2),
+            height: overlay.height.saturating_sub(2),
+        };
+
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(1)])
+            .split(inner);
+
+        let mut lines = Vec::new();
+        if self.music.sources.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "No tracks loaded.",
+                Style::default().fg(self.theme.subtext),
+            )));
+        } else {
+            let mut total = 0;
+            for source in &self.music.sources {
+                total += source.count;
+                let icon = source.kind.icon();
+                let label = source.kind.label();
+                lines.push(Line::from(vec![
+                    Span::styled(format!(" {icon} "), Style::default().fg(Color::LightYellow)),
+                    Span::styled(format!("{label:<15} "), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("{} tracks", source.count), Style::default().fg(self.theme.subtext)),
+                ]));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled(" ∑ ", Style::default().fg(Color::LightCyan)),
+                Span::styled(format!("{:<15} ", "Total"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{total} tracks"), Style::default().fg(Color::LightGreen)),
+            ]));
+        }
+
+        Paragraph::new(lines).render(rows[0], buf);
+        Paragraph::new(Line::from(Span::styled(
+            "[S] close",
             Style::default().fg(self.theme.subtext),
         )))
         .alignment(Alignment::Center)

@@ -17,7 +17,12 @@ use crate::{
     animation::Animator,
     cli::Cli,
     modes::{clock::ClockMode, pomodoro::PomodoroState},
-    music::{MusicCommand, MusicConfig, MusicEngine, library, queue::TrackQueue},
+    music::{
+        MusicCommand, MusicConfig, MusicEngine,
+        command_line::{CommandAction, CommandLine},
+        library,
+        queue::TrackQueue,
+    },
     render::DashboardView,
     theme::Theme,
     weather_live::configure_location,
@@ -56,6 +61,8 @@ pub struct App {
     music: MusicEngine,
     music_full_visualizer: bool,
     music_queue_overlay: bool,
+    music_source_overlay: bool,
+    command_line: CommandLine,
     animator: Animator,
     theme: Theme,
     dark_bg: bool,
@@ -89,6 +96,8 @@ impl App {
             music,
             music_full_visualizer: false,
             music_queue_overlay: false,
+            music_source_overlay: false,
+            command_line: CommandLine::new(),
             animator: Animator::new(),
             theme: Theme::default(),
             dark_bg: !cli.light_bg(),
@@ -108,6 +117,7 @@ impl App {
         if target != ModeKind::Music {
             self.music_full_visualizer = false;
             self.music_queue_overlay = false;
+            self.music_source_overlay = false;
         }
         self.animator.set_animation(from, target, now);
     }
@@ -119,6 +129,7 @@ impl App {
             self.animator.celebrate(now);
         }
         self.music.update();
+        self.command_line.tick();
         if now.duration_since(self.last_system_refresh) >= Duration::from_secs(1) {
             self.system.refresh_cpu_usage();
             self.system.refresh_memory();
@@ -133,6 +144,19 @@ impl App {
         };
         if key.kind != KeyEventKind::Press {
             return;
+        }
+
+        // When command line is active, route ALL keys there first
+        if self.command_line.is_active() {
+            if let Some(action) = self.command_line.handle_key(key.code) {
+                self.execute_command(action);
+            }
+            return;
+        }
+
+        // Dismiss any visible message on any keypress
+        if self.command_line.is_visible() {
+            self.command_line.dismiss();
         }
 
         match key.code {
@@ -167,6 +191,10 @@ impl App {
 
     fn handle_music_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         match code {
+            // `:` enters command mode (vim-style)
+            KeyCode::Char(':') => {
+                self.command_line.activate();
+            }
             KeyCode::Char(' ') => self.music.dispatch(MusicCommand::Toggle),
             KeyCode::Char('n') => self.music.dispatch(MusicCommand::Next),
             KeyCode::Char('p') => self.music.dispatch(MusicCommand::Prev),
@@ -175,6 +203,7 @@ impl App {
             KeyCode::Char('v') => self.music.cycle_visualizer_mode(),
             KeyCode::Char('V') => self.music_full_visualizer = !self.music_full_visualizer,
             KeyCode::Char('Q') => self.music_queue_overlay = !self.music_queue_overlay,
+            KeyCode::Char('S') => self.music_source_overlay = !self.music_source_overlay,
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 let volume = self.music.snapshot().volume.saturating_add(5).min(100);
                 self.music.dispatch(MusicCommand::SetVolume(volume));
@@ -214,6 +243,108 @@ impl App {
         }
     }
 
+    fn execute_command(&mut self, action: CommandAction) {
+        match action {
+            CommandAction::None => {
+                self.command_line.show_message("Unknown command. Type :help for usage.");
+            }
+            CommandAction::AddUrl(url) => {
+                self.music.dispatch(MusicCommand::LoadUrl(url.clone()));
+                let count = self.music.queue_len();
+                self.command_line
+                    .show_message(format!("Added: {url} ({count} tracks in queue)"));
+            }
+            CommandAction::LoadUrl(url) => {
+                let inputs = library::parse_inputs(&[url.clone()]);
+                let tracks = library::build_tracks(&inputs);
+                let count = tracks.len();
+                self.music.load(tracks);
+                if count > 0 {
+                    self.music.dispatch(MusicCommand::Play);
+                    self.command_line
+                        .show_message(format!("Loaded {count} tracks from: {url}"));
+                } else {
+                    self.command_line
+                        .show_message(format!("No playable tracks found at: {url}"));
+                }
+            }
+            CommandAction::LoadRadio => {
+                let stations = crate::music::provider::radio::load_radio_stations();
+                let count = stations.len();
+                if count > 0 {
+                    self.music.load(stations);
+                    self.command_line
+                        .show_message(format!("Loaded {count} radio stations"));
+                } else {
+                    self.command_line.show_message(
+                        "No radio stations found. Add stations to ~/.config/timer/radios.toml",
+                    );
+                }
+            }
+            CommandAction::ClearQueue => {
+                self.music.dispatch(MusicCommand::Stop);
+                self.music.load(Vec::new());
+                self.command_line.show_message("Queue cleared");
+            }
+            CommandAction::SetVolume(vol) => {
+                self.music.dispatch(MusicCommand::SetVolume(vol));
+                self.command_line
+                    .show_message(format!("Volume: {vol}%"));
+            }
+            CommandAction::Seek(secs) => {
+                self.music.dispatch(MusicCommand::Seek(secs));
+                let direction = if secs >= 0 { "→" } else { "←" };
+                self.command_line
+                    .show_message(format!("Seek {direction} {secs}s"));
+            }
+            CommandAction::ShowSources => {
+                self.music_source_overlay = !self.music_source_overlay;
+            }
+            CommandAction::StationAdd { name, url } => {
+                match crate::music::provider::radio::save_station(&name, &url) {
+                    Ok(()) => self
+                        .command_line
+                        .show_message(format!("Saved station: {name} → {url}")),
+                    Err(e) => self
+                        .command_line
+                        .show_message(format!("Error saving station: {e}")),
+                }
+            }
+            CommandAction::StationRemove(name) => {
+                match crate::music::provider::radio::remove_station(&name) {
+                    Ok(true) => self
+                        .command_line
+                        .show_message(format!("Removed station: {name}")),
+                    Ok(false) => self
+                        .command_line
+                        .show_message(format!("Station not found: {name}")),
+                    Err(e) => self
+                        .command_line
+                        .show_message(format!("Error removing station: {e}")),
+                }
+            }
+            CommandAction::StationList => {
+                let stations = crate::music::provider::radio::list_station_names();
+                if stations.is_empty() {
+                    self.command_line
+                        .show_message("No saved stations. Use :station add <name> <url>");
+                } else {
+                    let listing = stations
+                        .iter()
+                        .map(|(n, u)| format!("{n} → {u}"))
+                        .collect::<Vec<_>>()
+                        .join(" | ");
+                    self.command_line.show_message(listing);
+                }
+            }
+            CommandAction::ShowHelp => {
+                self.command_line.show_message(
+                    ":add <url> | :load <url> | :radio | :clear | :vol <n> | :seek <±s> | :station add/rm/list | :help",
+                );
+            }
+        }
+    }
+
     fn draw(&self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         let clock_snapshot = self.clock.snapshot();
         let pomodoro_snapshot = self.pomodoro.snapshot();
@@ -233,6 +364,8 @@ impl App {
                     music: &music_snapshot,
                     music_full_visualizer: self.music_full_visualizer,
                     music_queue_overlay: self.music_queue_overlay,
+                    music_source_overlay: self.music_source_overlay,
+                    command_line: &self.command_line,
                     pose,
                     theme: self.theme,
                     dark_bg: self.dark_bg,

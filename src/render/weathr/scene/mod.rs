@@ -55,7 +55,8 @@ impl WorldScene {
             dark_bg,
         );
 
-        self.house.render_braille(canvas, house_x, house_y, is_day, dark_bg);
+        self.house
+            .render_braille(canvas, house_x, house_y, is_day, dark_bg);
 
         self.decorations.render_braille(
             canvas,

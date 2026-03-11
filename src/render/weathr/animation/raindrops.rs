@@ -76,10 +76,34 @@ impl RaindropSystem {
             - (self.terminal_width as f32 * 0.5);
         let z = if rng.random::<bool>() { 1 } else { 0 };
         let speed_y = match self.intensity {
-            RainIntensity::Drizzle => if z == 1 { 0.4 } else { 0.2 },
-            RainIntensity::Light => if z == 1 { 0.7 } else { 0.4 },
-            RainIntensity::Heavy => if z == 1 { 0.9 } else { 0.6 },
-            RainIntensity::Storm => if z == 1 { 1.8 } else { 1.2 },
+            RainIntensity::Drizzle => {
+                if z == 1 {
+                    0.4
+                } else {
+                    0.2
+                }
+            }
+            RainIntensity::Light => {
+                if z == 1 {
+                    0.7
+                } else {
+                    0.4
+                }
+            }
+            RainIntensity::Heavy => {
+                if z == 1 {
+                    0.9
+                } else {
+                    0.6
+                }
+            }
+            RainIntensity::Storm => {
+                if z == 1 {
+                    1.8
+                } else {
+                    1.2
+                }
+            }
         };
         self.drops.push(Raindrop {
             x,

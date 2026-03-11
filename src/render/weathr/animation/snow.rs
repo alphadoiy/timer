@@ -69,9 +69,27 @@ impl SnowSystem {
             - (self.terminal_width as f32);
         let z = if rng.random::<bool>() { 1 } else { 0 };
         let base_speed = match self.intensity {
-            SnowIntensity::Light => if z == 1 { 0.15 } else { 0.08 },
-            SnowIntensity::Medium => if z == 1 { 0.2 } else { 0.1 },
-            SnowIntensity::Heavy => if z == 1 { 0.3 } else { 0.15 },
+            SnowIntensity::Light => {
+                if z == 1 {
+                    0.15
+                } else {
+                    0.08
+                }
+            }
+            SnowIntensity::Medium => {
+                if z == 1 {
+                    0.2
+                } else {
+                    0.1
+                }
+            }
+            SnowIntensity::Heavy => {
+                if z == 1 {
+                    0.3
+                } else {
+                    0.15
+                }
+            }
         };
         self.flakes.push(Snowflake {
             x,

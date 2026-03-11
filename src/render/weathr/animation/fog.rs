@@ -113,7 +113,8 @@ impl FogSystem {
         self.spawn_timer += 1;
         if self.spawn_timer >= spawn_delay && self.bands.len() < target {
             self.spawn_timer = 0;
-            self.bands.push_back(FogBand::new(tw, th, self.intensity, rng));
+            self.bands
+                .push_back(FogBand::new(tw, th, self.intensity, rng));
         }
     }
 

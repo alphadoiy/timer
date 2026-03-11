@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+pub mod command_line;
 pub mod config;
 pub mod engine;
 pub mod library;
@@ -29,11 +30,42 @@ impl Default for RepeatMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SourceKind {
-    LocalFile,
+pub enum ProviderKind {
+    Local,
     HttpStream,
+    Podcast,
+    YtDlp,
+    Radio,
+}
+
+impl ProviderKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Local => "Local",
+            Self::HttpStream => "Stream",
+            Self::Podcast => "Podcast",
+            Self::YtDlp => "yt-dlp",
+            Self::Radio => "Radio",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Local => "♫",
+            Self::HttpStream => "≋",
+            Self::Podcast => "◉",
+            Self::YtDlp => "▶",
+            Self::Radio => "◈",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SourceInfo {
+    pub kind: ProviderKind,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -42,7 +74,7 @@ pub struct TrackMeta {
     pub title: String,
     pub artist: String,
     pub duration: Option<Duration>,
-    pub source_kind: SourceKind,
+    pub provider: ProviderKind,
     pub path_or_url: String,
 }
 
@@ -50,6 +82,9 @@ pub struct TrackMeta {
 pub enum InputRef {
     Path(String),
     Url(String),
+    Podcast(String),
+    YtDlp(String),
+    Radio(String),
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +100,7 @@ pub enum MusicCommand {
     ToggleShuffle,
     SetRepeat(RepeatMode),
     Load(Vec<InputRef>),
+    LoadUrl(String),
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +182,7 @@ pub struct MusicSnapshot {
     pub wave_samples: Vec<f32>,
     pub visualizer_frame: u64,
     pub last_error: Option<String>,
+    pub sources: Vec<SourceInfo>,
 }
 
 impl Default for MusicSnapshot {
@@ -166,6 +203,7 @@ impl Default for MusicSnapshot {
             wave_samples: Vec::new(),
             visualizer_frame: 0,
             last_error: None,
+            sources: Vec::new(),
         }
     }
 }

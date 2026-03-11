@@ -29,6 +29,16 @@ impl TrackQueue {
         };
     }
 
+    /// Append tracks to the end of the queue without resetting the current
+    /// playback position.
+    pub fn append(&mut self, tracks: Vec<TrackMeta>) {
+        if self.tracks.is_empty() {
+            self.load(tracks);
+        } else {
+            self.tracks.extend(tracks);
+        }
+    }
+
     pub fn tracks(&self) -> &[TrackMeta] {
         &self.tracks
     }
@@ -153,7 +163,7 @@ mod tests {
             title: format!("track-{id}"),
             artist: "Unknown".to_string(),
             duration: Some(Duration::from_secs(60)),
-            source_kind: super::super::SourceKind::LocalFile,
+            provider: super::super::ProviderKind::Local,
             path_or_url: format!("/tmp/{id}.mp3"),
         }
     }
@@ -183,5 +193,22 @@ mod tests {
         queue.select(0);
         let next = queue.next(true).expect("expected track");
         assert_ne!(next.id, 1);
+    }
+
+    #[test]
+    fn append_extends_without_resetting_index() {
+        let mut queue = TrackQueue::new(false, RepeatMode::Off);
+        queue.load(vec![track(1), track(2)]);
+        queue.select(1);
+        queue.append(vec![track(3), track(4)]);
+        assert_eq!(queue.current_index(), Some(1));
+        assert_eq!(queue.tracks().len(), 4);
+    }
+
+    #[test]
+    fn append_to_empty_sets_index() {
+        let mut queue = TrackQueue::new(false, RepeatMode::Off);
+        queue.append(vec![track(1)]);
+        assert_eq!(queue.current_index(), Some(0));
     }
 }

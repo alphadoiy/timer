@@ -10,7 +10,7 @@ use crate::{
     animation::SpritePose,
     app::{ModeKind, SystemStats},
     modes::{clock::ClockSnapshot, pomodoro::PomodoroSnapshot},
-    music::{MusicSnapshot, ui as music_ui},
+    music::{MusicSnapshot, command_line::CommandLine, ui as music_ui},
     theme::Theme,
 };
 
@@ -37,6 +37,8 @@ pub struct DashboardView<'a> {
     pub music: &'a MusicSnapshot,
     pub music_full_visualizer: bool,
     pub music_queue_overlay: bool,
+    pub music_source_overlay: bool,
+    pub command_line: &'a CommandLine,
     pub pose: SpritePose,
     pub theme: Theme,
     pub dark_bg: bool,
@@ -102,6 +104,9 @@ impl DashboardView<'_> {
             }
             if self.music_queue_overlay {
                 self.render_music_queue_overlay(area, buf);
+            }
+            if self.music_source_overlay {
+                self.render_music_source_overlay(area, buf);
             }
             return;
         }
@@ -296,7 +301,7 @@ impl DashboardView<'_> {
                 "Countdown ring shrinks continuously with pseudo-shadowed hands for depth."
             }
             ModeKind::Music => {
-                "Built-in player mode: local files + HTTP stream with queue controls."
+                "Built-in player: local · stream · podcast · radio · YouTube (yt-dlp)"
             }
         };
         Paragraph::new(Line::from(Span::styled(
@@ -308,6 +313,55 @@ impl DashboardView<'_> {
     }
 
     fn render_status_bar(&self, area: Rect, buf: &mut Buffer) {
+        // When command line is visible, render it instead of normal status bar
+        if self.command_line.is_visible() {
+            let (text, cursor_pos) = self.command_line.display();
+            if self.command_line.is_input() {
+                // Input mode: show `:` prefix with cursor
+                let display = format!(":{text}");
+                let cursor_indicator = if cursor_pos < text.chars().count() {
+                    // Show cursor position
+                    format!(" (col {})", cursor_pos + 1)
+                } else {
+                    String::new()
+                };
+                Paragraph::new(Line::from(vec![
+                    Span::styled(
+                        display,
+                        Style::default()
+                            .fg(Color::White)
+                            .bg(self.theme.shadow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "█",
+                        Style::default()
+                            .fg(self.theme.accent)
+                            .bg(self.theme.shadow),
+                    ),
+                    Span::styled(
+                        cursor_indicator,
+                        Style::default()
+                            .fg(self.theme.subtext)
+                            .bg(self.theme.shadow),
+                    ),
+                ]))
+                .render(area, buf);
+            } else {
+                // Message mode: show feedback
+                Paragraph::new(Line::from(Span::styled(
+                    text,
+                    Style::default()
+                        .fg(Color::LightYellow)
+                        .bg(self.theme.shadow)
+                        .add_modifier(Modifier::BOLD),
+                )))
+                .alignment(Alignment::Center)
+                .render(area, buf);
+            }
+            return;
+        }
+
         let mode = match self.mode {
             ModeKind::Clock => "CLOCK",
             ModeKind::Pomodoro => self.pomodoro.phase.label(),
@@ -315,7 +369,7 @@ impl DashboardView<'_> {
         };
         let line = if self.mode == ModeKind::Music {
             format!(
-                " {mode} | CPU {:>5.1}% | MEM {:>4}/{:>4} MiB | {} | vol {}% | rep {} | shuf {} | vis {} | [Tab] switch [Space] play/pause [n/p] next/prev [↑/↓] select [v] mode [V] fullscreen [Q] queue [q] quit ",
+                " {mode} | CPU {:>5.1}% | MEM {:>4}/{:>4} MiB | {} | vol {}% | rep {} | shuf {} | vis {} | [:] cmd [Tab] switch [Space] play/pause [n/p] next/prev [q] quit ",
                 self.system.cpu_usage,
                 self.system.memory_used_mib,
                 self.system.memory_total_mib,
@@ -355,5 +409,4 @@ impl DashboardView<'_> {
     fn weather_label(&self) -> String {
         pomodoro::current_weather_summary()
     }
-
 }

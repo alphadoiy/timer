@@ -90,7 +90,13 @@ pub(super) fn put(buf: &mut Buffer, x: i16, y: i16, text: &str, color: ratatui::
         .set_style(Style::default().fg(color));
 }
 
-pub(super) fn put_centered(buf: &mut Buffer, area: Rect, y: i16, text: &str, color: ratatui::style::Color) {
+pub(super) fn put_centered(
+    buf: &mut Buffer,
+    area: Rect,
+    y: i16,
+    text: &str,
+    color: ratatui::style::Color,
+) {
     let width = UnicodeWidthStr::width(text) as i16;
     let x = area.x as i16 + area.width as i16 / 2 - width / 2;
     put_text(buf, x, y, text, color);
