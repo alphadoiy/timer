@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 
@@ -45,7 +45,7 @@ impl AirplaneSystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         let (body_color, wing_color, engine_color, window_color, trail_color) = if dark_bg {
             (
                 Color::White,
@@ -88,7 +88,7 @@ impl AirplaneSystem {
 ///              │ H-stab         wings
 ///
 fn render_plane(
-    canvas: &mut BrailleWeatherCanvas,
+    canvas: &mut HalfBlockCanvas,
     x: f32,
     y: f32,
     body: Color,

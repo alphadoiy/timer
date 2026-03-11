@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 use std::collections::VecDeque;
@@ -159,7 +159,7 @@ impl ThunderstormSystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         for bolt in &self.bolts {
             let life_ratio = bolt.age as f32 / bolt.max_age as f32;
             for &(x0, y0, x1, y1, is_branch) in &bolt.segments {

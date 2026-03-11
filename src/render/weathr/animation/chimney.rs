@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 
@@ -71,7 +71,7 @@ impl ChimneySmoke {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         for p in &self.particles {
             let ratio = p.life_ratio();
             let color = if dark_bg {

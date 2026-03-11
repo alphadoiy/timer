@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 
@@ -105,7 +105,7 @@ impl StarSystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         for star in &self.stars {
             let color = if star.brightness > 0.6 {
                 if dark_bg {

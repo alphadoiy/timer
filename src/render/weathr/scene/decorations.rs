@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use ratatui::style::Color;
 
 #[derive(Default)]
@@ -17,9 +17,9 @@ impl Decorations {
         Self
     }
 
-    pub fn render_braille(
+    pub fn render(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         config: &DecorationRenderConfig,
         dark_bg: bool,
     ) {
@@ -72,7 +72,7 @@ impl Decorations {
 
     fn render_deciduous_tree(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         x: f32,
         horizon: f32,
         is_day: bool,
@@ -137,7 +137,7 @@ impl Decorations {
 
     fn render_pine_tree(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         x: f32,
         horizon: f32,
         is_day: bool,
@@ -220,7 +220,7 @@ impl Decorations {
 
     fn render_fence(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         x: f32,
         horizon: f32,
         is_day: bool,
@@ -253,24 +253,58 @@ impl Decorations {
 
     fn render_mailbox(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         x: f32,
         horizon: f32,
         is_day: bool,
         dark_bg: bool,
     ) {
-        let color = if is_day {
+        // Use high-contrast colors so the mailbox stays legible at the
+        // current pixel density. Draw bottom-to-top: post first, body over
+        // it, flag last.
+
+        let post_color = if dark_bg {
+            Color::Rgb(160, 120, 70)
+        } else {
+            Color::Rgb(90, 60, 30)
+        };
+
+        // Bright body so it stands out on the dark terminal background
+        let body_color = if is_day {
             if dark_bg {
-                Color::Blue
+                Color::Rgb(230, 230, 240)
             } else {
-                Color::Rgb(0, 0, 140)
+                Color::Rgb(140, 140, 150)
             }
         } else if dark_bg {
-            Color::Rgb(40, 40, 120)
+            Color::Rgb(180, 180, 195)
         } else {
-            Color::Rgb(20, 20, 80)
+            Color::Rgb(110, 110, 120)
         };
-        canvas.draw_line(x + 1.0, horizon - 3.0, x + 1.0, horizon, color);
-        canvas.fill_rect(x, horizon - 4.0, 2.5, 1.5, color);
+
+        let flag_color = if dark_bg {
+            Color::Rgb(230, 60, 50)
+        } else {
+            Color::Rgb(180, 40, 30)
+        };
+
+        let centre = x + 1.5;
+
+        // 1) Post – thin vertical bar from ground up to mailbox body
+        canvas.fill_rect(centre - 0.25, horizon - 4.0, 0.5, 4.0, post_color);
+
+        // 2) Mailbox body – drawn AFTER the post so its colour wins in
+        //    shared cells.  Keep it compact: 3 wide × 1.5 tall.
+        let body_w = 3.0;
+        let body_h = 1.5;
+        let body_x = centre - body_w / 2.0;
+        let body_y = horizon - 4.0 - body_h;
+        canvas.fill_rect(body_x, body_y, body_w, body_h, body_color);
+
+        // 3) Flag – drawn LAST so it is always visible.
+        //    Small square sitting to the right of the body.
+        let flag_x = body_x + body_w + 0.2;
+        let flag_y = body_y;
+        canvas.fill_rect(flag_x, flag_y, 0.8, 0.8, flag_color);
     }
 }

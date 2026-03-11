@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 
@@ -106,7 +106,7 @@ impl ButterflySystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         let palette = if dark_bg {
             &WING_COLORS_DARK
         } else {

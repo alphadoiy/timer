@@ -1,5 +1,17 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use ratatui::style::Color;
+
+const MOON_SPRITE: &[&str] = &[
+    "...EEE...",
+    "..EBBBE..",
+    ".EBBHBBE.",
+    ".BBBCBBE.",
+    "EBBBBBBBE",
+    ".EBBCBBE.",
+    ".EBBBBHE.",
+    "..EBBBE..",
+    "...EEE...",
+];
 
 pub struct MoonSystem {
     phase: f64,
@@ -30,10 +42,9 @@ impl MoonSystem {
         self.y = y;
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         let cx = self.x as f32;
         let cy = self.y as f32;
-        let r = 3.5;
 
         let (body_color, crater_color, edge_color) = if dark_bg {
             (
@@ -54,39 +65,61 @@ impl MoonSystem {
             return;
         }
 
-        canvas.fill_circle(cx, cy, r, body_color);
-        canvas.draw_circle(cx, cy, r, edge_color);
+        render_moon_sprite(canvas, cx, cy, body_color, crater_color, edge_color);
+        canvas.dither_ellipse(cx - 0.8, cy - 0.6, 2.2, 0.8, 0.35, edge_color, 41);
 
         match illum {
             1 | 7 => {
-                let shadow_cx = if illum == 1 {
-                    cx - r * 0.6
-                } else {
-                    cx + r * 0.6
-                };
-                canvas.fill_circle(shadow_cx, cy, r * 0.85, Color::Reset);
+                let lit_side = if illum == 1 { 1.0 } else { -1.0 };
+                apply_moon_shadow(canvas, cx, cy, lit_side, 0.72, 0.18, body_color, 73);
             }
             2 | 6 => {
-                let shadow_cx = if illum == 2 {
-                    cx - r * 0.3
-                } else {
-                    cx + r * 0.3
-                };
-                canvas.fill_circle(shadow_cx, cy, r * 0.7, Color::Reset);
+                let lit_side = if illum == 2 { 1.0 } else { -1.0 };
+                apply_moon_shadow(canvas, cx, cy, lit_side, 0.45, 0.2, body_color, 97);
             }
             3 | 5 => {}
-            4 => {
-                canvas.plot_f(cx - 0.8, cy - 0.5, crater_color);
-                canvas.plot_f(cx + 0.5, cy + 0.3, crater_color);
-                canvas.plot_f(cx - 0.2, cy + 0.8, crater_color);
-            }
             _ => {}
         }
+    }
+}
 
-        if (3..=5).contains(&illum) {
-            canvas.plot_f(cx - 0.8, cy - 0.5, crater_color);
-            canvas.plot_f(cx + 0.5, cy + 0.3, crater_color);
-            canvas.plot_f(cx - 0.2, cy + 0.8, crater_color);
+fn render_moon_sprite(
+    canvas: &mut HalfBlockCanvas,
+    cx: f32,
+    cy: f32,
+    body_color: Color,
+    crater_color: Color,
+    edge_color: Color,
+) {
+    let base_x = cx.round() as i32 - (MOON_SPRITE[0].len() as i32 / 2);
+    let base_y = (cy * 2.0).round() as i32 - (MOON_SPRITE.len() as i32 / 2);
+    for (row, line) in MOON_SPRITE.iter().enumerate() {
+        for (col, ch) in line.chars().enumerate() {
+            let color = match ch {
+                'B' => Some(body_color),
+                'C' => Some(crater_color),
+                'E' => Some(edge_color),
+                'H' => Some(edge_color),
+                _ => None,
+            };
+            if let Some(color) = color {
+                canvas.plot(base_x + col as i32, base_y + row as i32, color);
+            }
         }
     }
+}
+
+fn apply_moon_shadow(
+    canvas: &mut HalfBlockCanvas,
+    cx: f32,
+    cy: f32,
+    lit_side: f32,
+    offset: f32,
+    density: f32,
+    rim_color: Color,
+    seed: u32,
+) {
+    let shadow_cx = cx - lit_side * offset;
+    canvas.fill_circle(shadow_cx, cy, 2.8, Color::Reset);
+    canvas.dither_ellipse(shadow_cx, cy, 2.2, 2.8, density, rim_color, seed);
 }

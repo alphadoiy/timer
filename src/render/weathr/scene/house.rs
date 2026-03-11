@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use ratatui::style::Color;
 
 #[derive(Default)]
@@ -19,9 +19,9 @@ impl House {
         Self::WIDTH
     }
 
-    pub fn render_braille(
+    pub fn render(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         x: u16,
         y: u16,
         is_day: bool,
@@ -188,7 +188,7 @@ impl House {
     #[allow(clippy::too_many_arguments)]
     fn render_chimney(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         x: f32,
         y: f32,
         w: f32,

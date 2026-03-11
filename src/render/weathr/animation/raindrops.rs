@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use crate::render::weathr::types::RainIntensity;
 use rand::prelude::*;
 use ratatui::style::Color;
@@ -165,7 +165,7 @@ impl RaindropSystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         let (fg_near, fg_far) = if dark_bg {
             (Color::Rgb(160, 210, 255), Color::Rgb(80, 100, 130))
         } else {

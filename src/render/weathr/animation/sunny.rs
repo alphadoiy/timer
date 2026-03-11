@@ -1,8 +1,35 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use ratatui::style::Color;
-use std::f32::consts::TAU;
 
 use super::Animation;
+
+const SUN_FRAME_EVEN: &[&str] = &[
+    ".....R.....",
+    "...R.G.R...",
+    "..RRGGGRR..",
+    "...GCCCG...",
+    ".RGCCCCCRG.",
+    "RGCCCCCCCRG",
+    ".RGCCCCCRG.",
+    "...GCCCG...",
+    "..RRGGGRR..",
+    "...R.G.R...",
+    ".....R.....",
+];
+
+const SUN_FRAME_ODD: &[&str] = &[
+    "..R.....R..",
+    "...RGGGR...",
+    ".R.GCCCG.R.",
+    "..GCCCCCG..",
+    ".GCCCCCCCG.",
+    "..CCCCCCC..",
+    ".GCCCCCCCG.",
+    "..GCCCCCG..",
+    ".R.GCCCG.R.",
+    "...RGGGR...",
+    "..R.....R..",
+];
 
 pub struct SunnyAnimation {
     frames: Vec<Vec<String>>,
@@ -15,31 +42,22 @@ impl SunnyAnimation {
         }
     }
 
-    pub fn render_braille(
-        &self,
-        canvas: &mut BrailleWeatherCanvas,
-        frame_number: usize,
-        dark_bg: bool,
-    ) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, frame_number: usize, dark_bg: bool) {
         let w = canvas.cell_width() as f32;
         let h = canvas.cell_height() as f32;
         let cx = w * 0.5;
         let cy = h * 0.25;
-        self.render_braille_at(canvas, frame_number, dark_bg, cx, cy);
+        self.render_at(canvas, frame_number, dark_bg, cx, cy);
     }
 
-    pub fn render_braille_at(
+    pub fn render_at(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         frame_number: usize,
         dark_bg: bool,
         cx: f32,
         cy: f32,
     ) {
-        let core_r = 2.5;
-        let ray_len = 2.4;
-        let vertical_scale = 0.5;
-
         let (core_color, ray_color, glow_color) = if dark_bg {
             (
                 Color::Rgb(255, 220, 80),
@@ -54,26 +72,22 @@ impl SunnyAnimation {
             )
         };
 
-        canvas.fill_circle(cx, cy, core_r, core_color);
-        canvas.fill_circle(cx, cy, core_r + 0.3, glow_color);
-        canvas.fill_circle(cx, cy, core_r - 0.5, core_color);
-
-        let ray_count = 8;
-        let phase = if frame_number.is_multiple_of(2) {
-            0.0
+        canvas.dither_ellipse(cx, cy, 5.8, 3.8, 0.22, glow_color, frame_number as u32 + 11);
+        canvas.dither_ellipse(
+            cx - 0.5,
+            cy - 0.4,
+            2.0,
+            0.9,
+            0.4,
+            glow_color,
+            frame_number as u32 + 29,
+        );
+        let sprite = if frame_number.is_multiple_of(2) {
+            SUN_FRAME_EVEN
         } else {
-            TAU / (ray_count as f32 * 2.0)
+            SUN_FRAME_ODD
         };
-        for i in 0..ray_count {
-            let theta = phase + (i as f32 / ray_count as f32) * TAU;
-            let inner_r = core_r + 0.35;
-            let outer_r = core_r + ray_len;
-            let x0 = cx + theta.cos() * inner_r;
-            let y0 = cy + theta.sin() * inner_r * vertical_scale;
-            let x1 = cx + theta.cos() * outer_r;
-            let y1 = cy + theta.sin() * outer_r * vertical_scale;
-            canvas.draw_line(x0, y0, x1, y1, ray_color);
-        }
+        render_sun_sprite(canvas, cx, cy, sprite, core_color, ray_color, glow_color);
     }
 }
 
@@ -89,5 +103,31 @@ impl Animation for SunnyAnimation {
 impl Default for SunnyAnimation {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn render_sun_sprite(
+    canvas: &mut HalfBlockCanvas,
+    cx: f32,
+    cy: f32,
+    sprite: &[&str],
+    core_color: Color,
+    ray_color: Color,
+    glow_color: Color,
+) {
+    let base_x = cx.round() as i32 - (sprite[0].len() as i32 / 2);
+    let base_y = (cy * 2.0).round() as i32 - (sprite.len() as i32 / 2);
+    for (row, line) in sprite.iter().enumerate() {
+        for (col, ch) in line.chars().enumerate() {
+            let color = match ch {
+                'C' => Some(core_color),
+                'R' => Some(ray_color),
+                'G' => Some(glow_color),
+                _ => None,
+            };
+            if let Some(color) = color {
+                canvas.plot(base_x + col as i32, base_y + row as i32, color);
+            }
+        }
     }
 }

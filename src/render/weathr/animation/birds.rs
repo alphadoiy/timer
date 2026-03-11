@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 
@@ -81,22 +81,22 @@ impl BirdSystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         let color = if dark_bg {
             Color::Rgb(166, 176, 194)
         } else {
             Color::Rgb(72, 82, 96)
         };
         for flock in &self.flocks {
-            render_bird_braille(canvas, &flock.leader, color);
+            render_bird(canvas, &flock.leader, color);
             for f in &flock.followers {
-                render_bird_braille(canvas, f, color);
+                render_bird(canvas, f, color);
             }
         }
     }
 }
 
-fn render_bird_braille(canvas: &mut BrailleWeatherCanvas, bird: &Bird, color: Color) {
+fn render_bird(canvas: &mut HalfBlockCanvas, bird: &Bird, color: Color) {
     let x = bird.x;
     let y = bird.y + bird.bob_offset;
     let flap = bird.flap_phase.sin();

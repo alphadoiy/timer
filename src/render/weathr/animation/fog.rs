@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use crate::render::weathr::types::FogIntensity;
 use rand::prelude::*;
 use ratatui::style::Color;
@@ -118,7 +118,7 @@ impl FogSystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         for band in &self.bands {
             let opacity = band.opacity();
             if opacity < 0.1 {
@@ -140,6 +140,15 @@ impl FogSystem {
                 density,
                 color,
                 band.lifetime,
+            );
+            canvas.dither_ellipse(
+                band.x + band.width as f32 * 0.5,
+                band.y + 0.2,
+                band.width as f32 * 0.7,
+                0.8,
+                (opacity * 0.22).clamp(0.08, 0.24),
+                color,
+                band.lifetime.wrapping_add(31),
             );
         }
     }

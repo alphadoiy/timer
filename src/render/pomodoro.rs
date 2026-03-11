@@ -103,7 +103,7 @@ pub(super) fn render_pomodoro_road_panel(
     render_weathr_animation(world, buf, finish_sprint, dark_bg);
 
     Paragraph::new(Line::from(Span::styled(
-        "Focus: braille weather • [b] toggle bg",
+        "Focus: pixel weather • [b] toggle bg",
         Style::default().fg(theme.subtext),
     )))
     .alignment(Alignment::Center)

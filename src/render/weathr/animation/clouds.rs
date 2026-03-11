@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use rand::prelude::*;
 use ratatui::style::Color;
 
@@ -179,7 +179,7 @@ impl CloudSystem {
         }
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         for cloud in &self.clouds {
             let body_color = if cloud.is_dark {
                 if dark_bg {
@@ -239,17 +239,31 @@ impl CloudSystem {
                 cloud.ry_body * 0.28,
                 shadow_color,
             );
+            canvas.dither_ellipse(
+                cloud.x,
+                cloud.y + cloud.ry_body * 0.55,
+                cloud.rx * 0.78,
+                cloud.ry_body * 0.34,
+                0.38,
+                shadow_color,
+                (cloud.x.to_bits() ^ cloud.y.to_bits()).wrapping_add(17),
+            );
 
             // Large overlapping lobes form the puffy top.
-            for &(bx, by, br) in &cloud.bumps {
+            for (i, &(bx, by, br)) in cloud.bumps.iter().enumerate() {
                 let lobe_ry = br / 2.0;
                 canvas.fill_ellipse(cloud.x + bx, cloud.y + by, br, lobe_ry, body_color);
-                canvas.fill_ellipse(
-                    cloud.x + bx - br * 0.10,
-                    cloud.y + by - lobe_ry * 0.20,
-                    br * 0.50,
-                    lobe_ry * 0.40,
+                let hx = cloud.x + bx - br * 0.10;
+                let hy = cloud.y + by - lobe_ry * 0.20;
+                canvas.fill_ellipse(hx, hy, br * 0.50, lobe_ry * 0.40, highlight_color);
+                canvas.dither_ellipse(
+                    hx,
+                    hy,
+                    br * 0.56,
+                    lobe_ry * 0.52,
+                    0.32,
                     highlight_color,
+                    (i as u32).wrapping_mul(97).wrapping_add(cloud.x.to_bits()),
                 );
             }
         }

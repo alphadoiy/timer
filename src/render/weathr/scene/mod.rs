@@ -2,7 +2,7 @@ pub mod decorations;
 pub mod ground;
 pub mod house;
 
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use ground::GroundWeather;
 
 pub struct WorldScene {
@@ -31,9 +31,9 @@ impl WorldScene {
         self.height = height;
     }
 
-    pub fn render_braille(
+    pub fn render(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         is_day: bool,
         weather: GroundWeather,
         dark_bg: bool,
@@ -45,7 +45,7 @@ impl WorldScene {
         let house_x = (self.width / 2).saturating_sub(house_width / 2);
         let house_y = horizon_y.saturating_sub(house_height);
 
-        self.ground.render_braille(
+        self.ground.render(
             canvas,
             self.width,
             Self::GROUND_HEIGHT,
@@ -55,10 +55,9 @@ impl WorldScene {
             dark_bg,
         );
 
-        self.house
-            .render_braille(canvas, house_x, house_y, is_day, dark_bg);
+        self.house.render(canvas, house_x, house_y, is_day, dark_bg);
 
-        self.decorations.render_braille(
+        self.decorations.render(
             canvas,
             &decorations::DecorationRenderConfig {
                 horizon_y,

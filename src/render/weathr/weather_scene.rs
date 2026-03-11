@@ -5,7 +5,7 @@ use ratatui::{buffer::Buffer, layout::Rect};
 
 use crate::{
     render::weathr::{
-        BrailleWeatherCanvas,
+        HalfBlockCanvas,
         animation::{
             AnimationController, airplanes::AirplaneSystem, birds::BirdSystem,
             butterflies::ButterflySystem, chimney::ChimneySmoke, clouds::CloudSystem,
@@ -61,7 +61,7 @@ impl WeatherFlags {
 }
 
 pub(crate) struct WeatherScene {
-    canvas: BrailleWeatherCanvas,
+    canvas: HalfBlockCanvas,
     scene: WorldScene,
     rain: RaindropSystem,
     snow: SnowSystem,
@@ -90,7 +90,7 @@ impl WeatherScene {
     pub(crate) fn new(width: u16, height: u16) -> Self {
         let area = Rect::new(0, 0, width, height);
         Self {
-            canvas: BrailleWeatherCanvas::new(area),
+            canvas: HalfBlockCanvas::new(area),
             scene: WorldScene::new(width, height),
             rain: RaindropSystem::new(width, height, RainIntensity::Light),
             snow: SnowSystem::new(width, height, SnowIntensity::Light),
@@ -207,7 +207,12 @@ impl WeatherScene {
             }
         }
 
-        if flags.is_cloudy || self.current_weather.condition == WeatherCondition::Clear {
+        if flags.is_cloudy
+            || flags.is_raining
+            || flags.is_thunderstorm
+            || flags.is_snowing
+            || self.current_weather.condition == WeatherCondition::Clear
+        {
             let is_clear = self.current_weather.condition == WeatherCondition::Clear;
             let use_dark_palette =
                 matches!(self.current_weather.condition, WeatherCondition::Overcast)
@@ -266,9 +271,9 @@ impl WeatherScene {
         );
 
         if !flags.is_day {
-            self.stars.render_braille(&mut self.canvas, dark_bg);
+            self.stars.render(&mut self.canvas, dark_bg);
             if self.should_show_fireflies() {
-                self.fireflies.render_braille(&mut self.canvas, dark_bg);
+                self.fireflies.render(&mut self.canvas, dark_bg);
             }
         }
 
@@ -277,7 +282,7 @@ impl WeatherScene {
             && !flags.is_thunderstorm
             && !flags.is_snowing
         {
-            self.sunny_animation.render_braille_at(
+            self.sunny_animation.render_at(
                 &mut self.canvas,
                 self.animation_controller.current_frame(),
                 dark_bg,
@@ -286,17 +291,17 @@ impl WeatherScene {
             );
         }
 
-        self.clouds.render_braille(&mut self.canvas, dark_bg);
+        self.clouds.render(&mut self.canvas, dark_bg);
 
         if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && flags.is_day {
-            self.birds.render_braille(&mut self.canvas, dark_bg);
+            self.birds.render(&mut self.canvas, dark_bg);
             if self.should_show_butterflies() {
-                self.butterflies.render_braille(&mut self.canvas, dark_bg);
+                self.butterflies.render(&mut self.canvas, dark_bg);
             }
         }
 
         if !flags.is_raining && !flags.is_thunderstorm && !flags.is_snowing && !flags.is_foggy {
-            self.airplanes.render_braille(&mut self.canvas, dark_bg);
+            self.airplanes.render(&mut self.canvas, dark_bg);
         }
 
         let ground_weather = GroundWeather {
@@ -305,27 +310,27 @@ impl WeatherScene {
             is_thunderstorm: flags.is_thunderstorm,
         };
         self.scene
-            .render_braille(&mut self.canvas, flags.is_day, ground_weather, dark_bg);
+            .render(&mut self.canvas, flags.is_day, ground_weather, dark_bg);
 
         if !flags.is_day {
-            self.moon.render_braille(&mut self.canvas, dark_bg);
+            self.moon.render(&mut self.canvas, dark_bg);
         }
 
         if !flags.is_raining && !flags.is_thunderstorm {
-            self.chimney.render_braille(&mut self.canvas, dark_bg);
+            self.chimney.render(&mut self.canvas, dark_bg);
         }
 
         if flags.is_thunderstorm {
-            self.rain.render_braille(&mut self.canvas, dark_bg);
-            self.thunderstorm.render_braille(&mut self.canvas, dark_bg);
+            self.rain.render(&mut self.canvas, dark_bg);
+            self.thunderstorm.render(&mut self.canvas, dark_bg);
         } else if flags.is_raining {
-            self.rain.render_braille(&mut self.canvas, dark_bg);
+            self.rain.render(&mut self.canvas, dark_bg);
         } else if flags.is_snowing {
-            self.snow.render_braille(&mut self.canvas, dark_bg);
+            self.snow.render(&mut self.canvas, dark_bg);
         }
 
         if flags.is_foggy {
-            self.fog.render_braille(&mut self.canvas, dark_bg);
+            self.fog.render(&mut self.canvas, dark_bg);
         }
 
         self.render_hud(w, h, finish_sprint, dark_bg);

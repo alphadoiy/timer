@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use crate::render::weathr::types::SnowIntensity;
 use rand::prelude::*;
 use ratatui::style::Color;
@@ -140,7 +140,7 @@ impl SnowSystem {
         });
     }
 
-    pub fn render_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    pub fn render(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         let (near, far) = if dark_bg {
             (Color::White, Color::Rgb(140, 140, 160))
         } else {
@@ -153,10 +153,10 @@ impl SnowSystem {
                 canvas.plot_f(f.x + 0.5, f.y, color);
             }
         }
-        self.render_ground_braille(canvas, dark_bg);
+        self.render_ground(canvas, dark_bg);
     }
 
-    fn render_ground_braille(&self, canvas: &mut BrailleWeatherCanvas, dark_bg: bool) {
+    fn render_ground(&self, canvas: &mut HalfBlockCanvas, dark_bg: bool) {
         let (primary, secondary) = if dark_bg {
             (Color::White, Color::Rgb(200, 200, 220))
         } else {

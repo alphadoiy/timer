@@ -1,4 +1,4 @@
-use crate::render::weathr::BrailleWeatherCanvas;
+use crate::render::weathr::HalfBlockCanvas;
 use ratatui::style::Color;
 
 #[derive(Default)]
@@ -13,9 +13,9 @@ pub struct GroundWeather {
 
 impl Ground {
     #[allow(clippy::too_many_arguments)]
-    pub fn render_braille(
+    pub fn render(
         &self,
-        canvas: &mut BrailleWeatherCanvas,
+        canvas: &mut HalfBlockCanvas,
         width: u16,
         height: u16,
         y_start: u16,
