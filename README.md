@@ -31,6 +31,13 @@ cargo run -- pomodoro
 cargo run -- music ~/Music
 ```
 
+Build an optimized binary locally:
+
+```bash
+cargo build --release
+./target/release/timer
+```
+
 ## Modes
 
 ### Clock
@@ -90,3 +97,14 @@ Running `:radio` also loads the built-in Code Radio station for quick live-strea
 This project is licensed under [MIT](/Users/alphadoiy/Coding/timer/LICENSE).
 
 Third-party Rust crate attributions and license notes are listed in [THIRD_PARTY_NOTICES.md](/Users/alphadoiy/Coding/timer/THIRD_PARTY_NOTICES.md).
+
+## Releases
+
+This repository includes a GitHub Actions release workflow at [.github/workflows/release.yml](/Users/alphadoiy/Coding/timer/.github/workflows/release.yml). Pushing a tag like `v0.1.0` will build release binaries for Linux, macOS, and Windows and upload them to GitHub Releases.
+
+Example:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
