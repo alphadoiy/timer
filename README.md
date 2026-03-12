@@ -53,3 +53,21 @@
 - `:station add <name> <url>`：保存自定义电台
 - `:station rm <name>`：删除自定义电台
 - `:station list`：列出已保存电台
+
+## Build
+
+```bash
+cargo run
+```
+
+如果想直接进入音乐模式并加载来源：
+
+```bash
+cargo run -- music <PATH_OR_URL>
+```
+
+## Open Source Notice
+
+这个仓库依赖多个开源 Rust crates。公开发布时，第三方依赖和对应许可证已经整理在 [THIRD_PARTY_NOTICES.md](/Users/alphadoiy/Coding/timer/THIRD_PARTY_NOTICES.md)。
+
+当前需要你单独确认的是本项目自身的许可证；在你选定之前，这个仓库仍然可以公开，但其他人默认没有获得复用你源码的授权。

@@ -2,6 +2,11 @@
 name = "timer"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "A terminal dashboard with clock, pomodoro, weather, and multi-source music playback."
+readme = "README.md"
+keywords = ["timer", "tui", "pomodoro", "music", "dashboard"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 anyhow = "1.0"
